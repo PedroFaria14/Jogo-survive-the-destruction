@@ -1,0 +1,12 @@
+# Segredos e ambiente
+.env
+.env.*
+!.env.example
+
+# Go
+backend/bin/
+backend/*.exe
+backend/*.test
+
+# Logs
+*.log

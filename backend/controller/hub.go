@@ -5,10 +5,14 @@ import (
 	"game-backend/models"
 	"game-backend/service"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+// RoundRestartDelay é o tempo de contagem regressiva antes de iniciar nova rodada.
+const RoundRestartDelay = 3 * time.Second
 
 type PlayerCommand struct {
 	PlayerID string
@@ -31,10 +35,14 @@ type Hub struct {
 	Broadcast    chan []byte
 	Command      chan PlayerCommand // Canal para comandos de entrada dos jogadores
 	GameState    *models.GameState
-	ScoreService service.ScoreService // NOVO: Serviço para lidar com o placar
+	ScoreService service.ScoreService // Serviço para lidar com o placar
+
+	// Estado da rodada (serializado apenas via GameState.RoundOver/Countdown)
+	roundOver bool
+	roundEnd  time.Time
 }
 
-// NewHub agora recebe o serviço de placar para injeção de dependência
+// NewHub recebe o serviço de placar para injeção de dependência
 func NewHub(ss service.ScoreService) *Hub {
 	return &Hub{
 		Clients:      make(map[*Client]bool),
@@ -43,106 +51,207 @@ func NewHub(ss service.ScoreService) *Hub {
 		Broadcast:    make(chan []byte),
 		Command:      make(chan PlayerCommand),
 		GameState:    models.NewGameState(),
-		ScoreService: ss, // ATUALIZADO: Injetado o serviço
+		ScoreService: ss,
 	}
 }
 
-func (h *Hub) gameLoop() {
-	// Rodando a 60 FPS (cerca de 16ms)
-	ticker := time.NewTicker(time.Millisecond * 16)
-	defer ticker.Stop()
+// removeClient remove o cliente do mapa e fecha o canal Send apenas uma vez.
+// Deve ser chamado somente a partir da goroutine Run() (serializado).
+func (h *Hub) removeClient(client *Client) {
+	if _, ok := h.Clients[client]; ok {
+		delete(h.Clients, client)
+		close(client.Send)
+	}
+}
 
-	for range ticker.C {
-		// 1. PROCESSAR MORTE e SALVAR PLACAR
-		playersToRemove := []*models.Player{}
-		for _, player := range h.GameState.Players {
-			if player.IsDead {
-				// 1.1. Calcular Pontuação Final e Salvar (Não bloqueie o gameLoop!)
-				duration := time.Since(player.StartTime)
-				finalScore := int(duration.Seconds()) // Placar em segundos
+// broadcastState serializa e envia o estado atual para todos os clientes.
+func (h *Hub) broadcastState() {
+	stateJSON, err := json.Marshal(h.GameState)
+	if err != nil {
+		log.Printf("Erro ao serializar GameState: %v", err)
+		return
+	}
 
-				// Usa goroutine para salvar o placar sem travar o loop do jogo
-				go func(p *models.Player, d time.Duration, s int) {
-					if err := h.ScoreService.SaveScore(p.ID, s, d); err != nil {
-						log.Printf("ERRO ao salvar placar do jogador %s: %v", p.ID, err)
-					}
-					// 1.2. Após salvar, o jogador é removido do hub para liberar a conexão.
-					// Note: Precisamos de uma maneira de encontrar o *Client do PlayerID
-					// Esta lógica será delegada ao Unregister no Hub.Run após o cliente se desconectar.
-				}(player, duration, finalScore)
-
-				// Adiciona o jogador para ser removido do GameState ao final do loop
-				playersToRemove = append(playersToRemove, player)
-			} else {
-				// 1.3. ATUALIZAR PLACAR (Enquanto vivo, o placar é o tempo de sobrevivência)
-				player.Score = int(time.Since(player.StartTime).Seconds())
-			}
+	for client := range h.Clients {
+		select {
+		case client.Send <- stateJSON:
+		default:
+			// Cliente lento: remove a conexão para evitar acúmulo.
+			h.removeClient(client)
+			client.Conn.Close()
 		}
+	}
+}
 
-		// 2. APLICAR FÍSICA E DESTRUIÇÃO
-		h.GameState.ApplyPhysics()
-		h.GameState.CheckArenaDestruction()
+// sendToPlayer envia uma mensagem JSON para o cliente com o PlayerID informado.
+func (h *Hub) sendToPlayer(playerID string, msg map[string]string) {
+	for client := range h.Clients {
+		if client.PlayerID == playerID {
+			data, err := json.Marshal(msg)
+			if err != nil {
+				return
+			}
+			select {
+			case client.Send <- data:
+			default:
+			}
+			return
+		}
+	}
+}
 
-		// 3. SINCRONIZAR (BROADCAST)
-		stateJSON, err := json.Marshal(h.GameState)
-		if err != nil {
-			log.Printf("Erro ao serializar GameState: %v", err)
+// saveDeadScores salva (uma única vez) o placar dos jogadores mortos e os
+// notifica com game_over. Não fecha a conexão — o jogador vira espectador.
+func (h *Hub) saveDeadScores() {
+	for _, p := range h.GameState.Players {
+		if !p.IsDead || p.ScoreSaved {
 			continue
 		}
-
-		// Envia o estado serializado de volta para o canal de Broadcast
-		h.Broadcast <- stateJSON
-
-		// 4. REMOVER CLIENTES MORTOS APÓS O BROADCAST
-		// A remoção do GameState acontece aqui, forçando a desconexão do cliente.
-		for _, p := range playersToRemove {
-			// Encontra o *Client associado ao PlayerID para fechar a conexão
-			for client := range h.Clients {
-				if client.PlayerID == p.ID {
-					// Fecha a conexão do cliente para acionar o Unregister no Hub.Run
-					client.Conn.Close()
-					break
-				}
-			}
-			h.GameState.RemovePlayer(p.ID)
+		p.ScoreSaved = true
+		duration := time.Since(p.StartTime)
+		finalScore := int(duration.Seconds())
+		name := p.Name
+		if name == "" {
+			name = p.ID
 		}
+
+		pp := p
+		go func() {
+			if err := h.ScoreService.SaveScore(pp.ID, name, finalScore, duration); err != nil {
+				log.Printf("ERRO ao salvar placar do jogador %s: %v", pp.ID, err)
+			}
+		}()
+
+		h.sendToPlayer(p.ID, map[string]string{"type": "game_over", "player_id": p.ID})
 	}
 }
 
+// roundShouldEnd indica o fim da rodada: arena sem blocos ativos, todos os
+// jogadores eliminados, ou (em multiplayer) resta apenas um jogador vivo —
+// o último sobrevivente vence a rodada.
+func (h *Hub) roundShouldEnd() bool {
+	gs := h.GameState
+	if gs.NoActiveTiles() {
+		return true
+	}
+	total := 0
+	alive := 0
+	for _, p := range gs.Players {
+		total++
+		if !p.IsDead {
+			alive++
+		}
+	}
+	if total == 0 {
+		return false
+	}
+	if total >= 2 && alive <= 1 {
+		return true
+	}
+	return alive == 0
+}
+
+// tick executa um passo de jogo. Roda dentro da goroutine Run() (serializado).
+func (h *Hub) tick(now time.Time) {
+	gs := h.GameState
+
+	// 1. Detecta o fim de rodada: todos mortos ou arena sem blocos ativos.
+	if !h.roundOver && h.roundShouldEnd() {
+		h.roundOver = true
+		h.roundEnd = now.Add(RoundRestartDelay)
+		gs.RoundOver = true
+		gs.Status = "round_over"
+		log.Printf("Rodada encerrada. Nova rodada em %s.", RoundRestartDelay)
+	}
+
+	// 2. Contagem regressiva / reinício.
+	if h.roundOver {
+		h.saveDeadScores()
+
+		remaining := int(h.roundEnd.Sub(now).Seconds() + 0.999)
+		if remaining < 0 {
+			remaining = 0
+		}
+		gs.Countdown = remaining
+
+		if !now.Before(h.roundEnd) {
+			gs.ResetRound()
+			h.roundOver = false
+			h.roundEnd = time.Time{}
+			log.Println("Nova rodada iniciada.")
+		}
+		h.broadcastState()
+		return
+	}
+
+	// 3. Rodada ativa: física, destruição e placares.
+	h.saveDeadScores()
+	gs.ApplyPhysics()
+	gs.CheckArenaDestruction()
+	for _, p := range gs.Players {
+		if !p.IsDead {
+			p.Score = int(now.Sub(p.StartTime).Seconds())
+		}
+	}
+
+	h.broadcastState()
+}
+
+// Run é o único goroutine que lê/escreve o GameState e a lista de clientes.
+// Todos os eventos (registro, comandos, desconexão e ticks de física) passam
+// por este loop, evitando condições de corrida nos mapas compartilhados.
 func (h *Hub) Run() {
-	// 🛑 INICIA O GAME LOOP EM UMA GOROUTINE SEPARADA!
-	go h.gameLoop()
+	ticker := time.NewTicker(time.Millisecond * 16) // ~60 FPS
+	defer ticker.Stop()
 
 	for {
 		select {
+		case now := <-ticker.C:
+			h.tick(now)
+
 		case client := <-h.Register:
 			h.Clients[client] = true
 			log.Printf("Novo cliente conectado. Total de clientes: %d", len(h.Clients))
-			// Adiciona o jogador ao estado do jogo
+
+			// Adiciona o jogador ao estado do jogo e associa o ID ao Client.
 			player := h.GameState.AddPlayer(client.Conn.RemoteAddr().String())
-			client.PlayerID = player.ID // Associa o ID do Player do GameState ao Client
+			client.PlayerID = player.ID
+
+			// Informa ao cliente qual é o seu próprio ID logo após se conectar.
+			initMsg, err := json.Marshal(map[string]string{"type": "init", "player_id": player.ID})
+			if err == nil {
+				client.Send <- initMsg
+			}
 
 		case client := <-h.Unregister:
-			if _, ok := h.Clients[client]; ok {
-				delete(h.Clients, client)
-				close(client.Send)
-				log.Printf("Cliente desconectado. Total de clientes: %d", len(h.Clients))
-				// A remoção do GameState (h.GameState.RemovePlayer) é delegada
-				// ao gameLoop quando o jogador morre, ou já acontece aqui
-				// se o jogador se desconectar enquanto vivo.
-				h.GameState.RemovePlayer(client.PlayerID) // Garante a remoção em qualquer caso
-			}
-		case message := <-h.Broadcast:
-			for client := range h.Clients {
-				select {
-				case client.Send <- message:
-				default:
-					close(client.Send)
-					delete(h.Clients, client)
-				}
-			}
+			h.removeClient(client) // Fecha o channel apenas se ainda estiver no mapa
+			h.GameState.RemovePlayer(client.PlayerID)
+			log.Printf("Cliente desconectado. Total de clientes: %d", len(h.Clients))
+
 		case playerCmd := <-h.Command:
-			// Processa o comando do jogador
+			// Comando de join: define o nickname do jogador (sanitizado).
+			if playerCmd.Cmd.Type == "join" {
+				name := strings.TrimSpace(playerCmd.Cmd.Name)
+				if len(name) > 20 {
+					name = name[:20]
+				}
+				if p := h.GameState.Players[playerCmd.PlayerID]; p != nil {
+					p.Name = name
+					log.Printf("Jogador %s definiu o nome: %q", playerCmd.PlayerID, name)
+				}
+				continue
+			}
+			// Comando de restart: respawna o jogador no mesmo mapa com vidas cheias.
+			if playerCmd.Cmd.Type == "restart" {
+				if !h.roundOver {
+					if p := h.GameState.Players[playerCmd.PlayerID]; p != nil {
+						p.Lives = models.MaxLives
+					}
+					h.GameState.RespawnPlayer(playerCmd.PlayerID)
+				}
+				continue
+			}
+			// Demais comandos: input de movimento.
 			h.GameState.ProcessInput(playerCmd.PlayerID, playerCmd.Cmd)
 		}
 	}

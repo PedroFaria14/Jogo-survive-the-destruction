@@ -19,8 +19,8 @@ type Score struct {
 // ScoreService define a interface para interagir com o placar
 type ScoreService interface {
 	GetTopScores() ([]Score, error)
-	// Adiciona SaveScore, que recebe o ID do jogador, o placar em segundos e a duração total.
-	SaveScore(playerID string, scoreSeconds int, duration time.Duration) error
+	// SaveScore recebe o ID do jogador, o nome, o placar em segundos e a duração total.
+	SaveScore(playerID, playerName string, scoreSeconds int, duration time.Duration) error
 }
 
 // PostgresScoreService é a implementação que usa o PostgreSQL
@@ -99,9 +99,7 @@ func (s *PostgresScoreService) GetTopScores() ([]Score, error) {
 }
 
 // SaveScore salva o placar final do jogador no banco de dados.
-func (s *PostgresScoreService) SaveScore(playerID string, scoreSeconds int, duration time.Duration) error {
-	// A lógica do jogo usa o playerID como nome por enquanto.
-	playerName := playerID
+func (s *PostgresScoreService) SaveScore(playerID, playerName string, scoreSeconds int, duration time.Duration) error {
 	durationMs := duration.Milliseconds()
 
 	// Prepara a query de inserção.
@@ -113,6 +111,6 @@ func (s *PostgresScoreService) SaveScore(playerID string, scoreSeconds int, dura
 		return fmt.Errorf("erro ao salvar placar para %s: %w", playerID, err)
 	}
 
-	log.Printf("Placar salvo: %s, Score: %d segundos", playerID, scoreSeconds)
+	log.Printf("Placar salvo: %s, Score: %d segundos", playerName, scoreSeconds)
 	return nil
 }
