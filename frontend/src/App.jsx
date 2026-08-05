@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 
 import { sfx } from './sfx.js';
+import carregamentoImg from '../assets/carregamento.jpeg';
 
 // =======================
 // Configurações
@@ -518,6 +519,7 @@ export default function App() {
   );
   const [bestScore, setBestScore] = useState(0);
   const [isTouch, setIsTouch] = useState(false);
+  const [backendStatus, setBackendStatus] = useState('checking');
 
   // O estado do jogo (60 FPS) é guardado em ref e desenhado no canvas via
   // requestAnimationFrame. A UI (overlays/sidebar) usa um snapshot `ui`
@@ -655,14 +657,28 @@ export default function App() {
   }, []);
 
   // =======================
-  // Config compartilhada (evita drift backend/frontend)
+  // Config compartilhada + verificação do backend (tela de carregamento)
   // =======================
-  useEffect(() => {
-    fetch(CONFIG_API_URL)
-      .then((res) => res.json())
-      .then(setCfg)
-      .catch(() => {});
+  const checkBackend = useCallback(async () => {
+    setBackendStatus('checking');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(CONFIG_API_URL, { signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setCfg(data);
+      setBackendStatus('ready');
+    } catch {
+      setBackendStatus('error');
+    } finally {
+      clearTimeout(timer);
+    }
   }, []);
+
+  useEffect(() => {
+    checkBackend();
+  }, [checkBackend]);
 
   // Detecta a 3ª queda (is_dead false → true) e abre o prompt persistente de
   // "outra partida". Em partida solo o round_over acontece no mesmo instante,
@@ -1375,6 +1391,64 @@ export default function App() {
   // =======================
   // UI
   // =======================
+  // Tela de carregamento/erro enquanto o backend não confirma estar no ar
+  // =======================
+  if (backendStatus !== 'ready') {
+    const isError = backendStatus === 'error';
+    return (
+      <Box
+        sx={{
+          height: '100dvh',
+          width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 3,
+          p: 3,
+          textAlign: 'center',
+          background:
+            'linear-gradient(180deg, #fdf0d8 0%, #f6e3c5 45%, #efc58b 100%)',
+        }}
+      >
+        {isError ? (
+          <>
+            <Typography variant="h4" color={PALETTE.fallingDark} fontWeight={800}>
+              Não foi possível conectar ao servidor
+            </Typography>
+            <Typography color={PALETTE.textSoft}>
+              Verifique sua conexão e tente novamente.
+            </Typography>
+            <Button
+              variant="contained"
+              size="large"
+              sx={{ bgcolor: PALETTE.olive, '&:hover': { bgcolor: '#5f6d30' } }}
+              onClick={checkBackend}
+            >
+              TENTAR NOVAMENTE
+            </Button>
+          </>
+        ) : (
+          <>
+            <img
+              src={carregamentoImg}
+              alt="Carregando"
+              style={{
+                maxWidth: '90%',
+                maxHeight: '70dvh',
+                borderRadius: 16,
+                boxShadow: '0 18px 40px rgba(90,70,40,0.25)',
+              }}
+            />
+            <Typography variant="h6" color={PALETTE.textBrown} fontWeight={700}>
+              Carregando jogo...
+            </Typography>
+          </>
+        )}
+      </Box>
+    );
+  }
+
   return (
     <Box
       sx={{
