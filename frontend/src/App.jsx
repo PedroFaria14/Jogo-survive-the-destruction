@@ -18,8 +18,8 @@ import { sfx } from './sfx.js';
 // Configurações
 // =======================
 // URLs configuráveis via variáveis de ambiente Vite (VITE_*) com fallback local.
-const GAME_WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws';
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+const GAME_WS_URL = import.meta.env.VITE_WS_URL || 'wss://jogo-survive-the-destruction.onrender.com/ws';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://jogo-survive-the-destruction.onrender.com';
 const SCORES_API_URL = `${API_BASE_URL}/api/scores`;
 const CONFIG_API_URL = `${API_BASE_URL}/api/config`;
 

@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: jogo-survive-the-destruction
+    runtime: go
+    rootDir: backend
+    buildCommand: go build -o server .
+    startCommand: ./server
+    envVars:
+      - key: DATABASE_URL
+        value: postgresql://neondb_owner:SUA_SENHA_ROTACIONE_NO_NEON@ep-withered-fire-axsj71df-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+      - key: ALLOWED_ORIGINS
+        value: https://jogo-survive-the-destruction.vercel.app
+      - key: HTTP_ADDR
+        value: ":8080"
