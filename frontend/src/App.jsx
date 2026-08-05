@@ -14,6 +14,7 @@ import {
 
 import { sfx } from './sfx.js';
 import { STRINGS, detectLanguage, translate } from './i18n.js';
+import { createSim, applyInput, reconcileSim, stepSim, ticksFor } from './physics.js';
 
 // Telas de carregamento sorteadas: carrega automaticamente qualquer imagem
 // com prefixo "carregamento" em frontend/assets/ (sem mexer no código).
@@ -657,6 +658,7 @@ export default function App() {
   const cfgRef = useRef(cfg);
   const powerUpPrevRef = useRef({});
   const prevBuffRef = useRef(null);
+  const localSimRef = useRef(null); // Predição client-side do jogador local
 
   // Dimensões da arena: o servidor envia por rodada (mapa procedural muda).
   const arenaW = ui.arena_width ?? cfg.arena_width;
@@ -671,6 +673,7 @@ export default function App() {
     startedRef.current = true;
     setGameStarted(true);
     gameStateRef.current = null;
+    localSimRef.current = null;
     prevDeadRef.current = false;
     setDeathPrompt(false);
     setDeathInfo(null);
@@ -709,16 +712,19 @@ export default function App() {
   // =======================
   const sendFrame = useCallback(() => {
     const s = socketRef.current;
+    const input = {
+      left: keysRef.current.left,
+      right: keysRef.current.right,
+      jump: keysRef.current.jump,
+      dash: keysRef.current.dash,
+    };
+    // Predição local: registra o input no sim imediatamente (edge-detect do
+    // dash, jump buffer e pulo variável), sem esperar o round-trip de rede.
+    if (localSimRef.current) {
+      applyInput(localSimRef.current, input, performance.now());
+    }
     if (s && s.readyState === WebSocket.OPEN && startedRef.current) {
-      s.send(
-        JSON.stringify({
-          type: 'input',
-          left: keysRef.current.left,
-          right: keysRef.current.right,
-          jump: keysRef.current.jump,
-          dash: keysRef.current.dash,
-        })
-      );
+      s.send(JSON.stringify({ type: 'input', ...input }));
     }
   }, []);
 
@@ -759,6 +765,7 @@ export default function App() {
     lastUiRef.current = 0;
     powerUpPrevRef.current = {};
     prevBuffRef.current = null;
+    localSimRef.current = null;
     setDeathPrompt(false);
     setDeathInfo(null);
     setMyPlayerId(null);
@@ -1003,6 +1010,18 @@ export default function App() {
         // Estado do jogo: guarda no ref para o canvas e atualiza a UI
         // (throttled) para os elementos de texto/HUD.
         gameStateRef.current = data;
+
+        // Reconcilia a predição local com a posição autoritativa do servidor.
+        const meId = myPlayerIdRef.current;
+        const meServer = meId ? data.players?.[meId] : null;
+        if (meServer) {
+          if (!localSimRef.current) {
+            localSimRef.current = createSim(meServer);
+          } else {
+            reconcileSim(localSimRef.current, meServer, cfgRef.current, performance.now());
+          }
+        }
+
         const nowMs = performance.now();
         if (nowMs - lastUiRef.current >= 250) {
           lastUiRef.current = nowMs;
@@ -1095,6 +1114,25 @@ export default function App() {
       const now = performance.now();
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
+
+      // Predição client-side: avança o sim do jogador local com as teclas
+      // atuais e o estado de tiles mais recente (mesmos passos do servidor).
+      const myPid = myPlayerIdRef.current;
+      const me = myPid ? gameState.players?.[myPid] : null;
+      if (me && !me.is_dead) {
+        if (!localSimRef.current) {
+          localSimRef.current = createSim(me);
+        }
+        const sim = localSimRef.current;
+        if (!sim.is_dead) {
+          const tiles = Object.values(gameState.arena_tiles || {}).map((t) => ({
+            is_active: t.is_active,
+            x: t.x,
+            y: t.y,
+          }));
+          stepSim(sim, tiles, now, cfgRef.current, ticksFor(dt * 1000));
+        }
+      }
 
       // --- Sons e efeitos por transição de estado ---
       if (prevRoundOverRef.current === true && gameState.round_over === false) {
@@ -1331,6 +1369,22 @@ export default function App() {
 
       players.forEach((player) => {
         seenIds.add(player.id);
+
+        // Jogador local: renderiza a posição PREDITA pelo sim (resposta
+        // imediata ao input), mantendo os demais dados do snapshot.
+        if (player.id === myPlayerId && localSimRef.current) {
+          const sim = localSimRef.current;
+          if (!sim.is_dead) {
+            player = {
+              ...player,
+              x: sim.x,
+              y: sim.y,
+              vx: sim.vx,
+              vy: sim.vy,
+              on_ground: sim.on_ground,
+            };
+          }
+        }
 
         if (!animsRef.current[player.id]) {
           animsRef.current[player.id] = {
