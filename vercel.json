@@ -1,4 +1,5 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
     "frontend": {
       "root": "frontend",
@@ -11,12 +12,28 @@
   },
   "rewrites": [
     {
+      "source": "/ws",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
       "source": "/api/(.*)",
-      "destination": "/backend/api/$1"
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/api",
+      "destination": {
+        "service": "backend"
+      }
     },
     {
       "source": "/(.*)",
-      "destination": "/frontend/$1"
+      "destination": {
+        "service": "frontend"
+      }
     }
   ]
 }

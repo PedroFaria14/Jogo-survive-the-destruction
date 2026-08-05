@@ -110,7 +110,15 @@ func main() {
 	})
 
 	// 4. Inicia o servidor HTTP com timeouts e desligamento gracioso.
+	// Em ambientes gerenciados (ex.: Vercel), a plataforma injeta PORT como
+	// apenas o número; HTTP_ADDR mantém o fallback local (ex.: ":8080").
 	addr := getenv("HTTP_ADDR", ":8080")
+	if port := os.Getenv("PORT"); port != "" {
+		if !strings.HasPrefix(port, ":") {
+			port = ":" + port
+		}
+		addr = port
+	}
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           nil,
