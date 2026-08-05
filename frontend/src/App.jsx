@@ -603,10 +603,10 @@ export default function App() {
         .requestFullscreen()
         .catch(() => {});
     }
-    // Trava a orientação em retrato no celular (Android; iOS ignora).
+    // Trava a orientação em paisagem no celular (Android; iOS ignora).
     if (isTouch && window.screen?.orientation?.lock) {
       window.screen.orientation
-        .lock('portrait')
+        .lock('landscape')
         .catch(() => {});
     }
   }, [isTouch]);
@@ -1200,30 +1200,13 @@ export default function App() {
         }
 
         // Seta branca: aponta para o próprio jogador quando ele sai da área
-        // visível. No modo mobile (cover) a área visível é menor que a arena
-        // (laterais cortadas), então os limites são calculados a partir do
-        // tamanho real do canvas na tela.
+        // visível. Com a arena sempre visível por inteiro (desktop e mobile em
+        // paisagem), os limites são a arena completa.
         if (player.id === myPlayerId && !player.is_dead) {
-          let vMinX = 0;
-          let vMaxX = arenaW;
-          let vMinY = 0;
-          let vMaxY = arenaH;
-          if (isTouch) {
-            const el = canvasRef.current;
-            if (el) {
-              const cw = el.clientWidth || arenaW;
-              const ch = el.clientHeight || arenaH;
-              const scale = Math.max(cw / arenaW, ch / arenaH);
-              if (scale > 0) {
-                const cropX = (arenaW * scale - cw) / (2 * scale);
-                const cropY = (arenaH * scale - ch) / (2 * scale);
-                vMinX = cropX;
-                vMaxX = arenaW - cropX;
-                vMinY = cropY;
-                vMaxY = arenaH - cropY;
-              }
-            }
-          }
+          const vMinX = 0;
+          const vMaxX = arenaW;
+          const vMinY = 0;
+          const vMaxY = arenaH;
 
           if (
             player.x < vMinX ||
@@ -1380,9 +1363,9 @@ export default function App() {
   // Botão de controle de toque (mobile): alvo grande, sem zoom/scroll.
   const touchBtnSx = {
     pointerEvents: 'auto',
-    minWidth: 72,
-    minHeight: 72,
-    fontSize: '1.6rem',
+    minWidth: 60,
+    minHeight: 60,
+    fontSize: '1.4rem',
     borderRadius: 3,
     touchAction: 'none',
     userSelect: 'none',
@@ -1464,22 +1447,13 @@ export default function App() {
                 className="game-canvas"
                 width={arenaW}
                 height={arenaH}
-                style={
-                  isTouch && gameStarted
-                    ? {
-                        display: 'block',
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                      }
-                    : {
-                        display: 'block',
-                        width: 'auto',
-                        height: 'auto',
-                        maxWidth: '100%',
-                        maxHeight: '100%',
-                      }
-                }
+                style={{
+                  display: 'block',
+                  width: 'auto',
+                  height: 'auto',
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                }}
               />
 
               {!gameStarted && (
@@ -1714,7 +1688,9 @@ export default function App() {
                       left: 0,
                       display: 'flex',
                       gap: 1,
-                      p: 1.5,
+                      pt: 'calc(10px + env(safe-area-inset-top))',
+                      pl: 'calc(10px + env(safe-area-inset-left))',
+                      pr: 1,
                       maxWidth: '70%',
                     }}
                   >
@@ -1784,8 +1760,8 @@ export default function App() {
                     size="small"
                     sx={{
                       position: 'absolute',
-                      top: 12,
-                      right: 12,
+                      top: 'calc(10px + env(safe-area-inset-top))',
+                      right: 'calc(10px + env(safe-area-inset-right))',
                       pointerEvents: 'auto',
                       minWidth: 44,
                       minHeight: 44,
@@ -1802,9 +1778,9 @@ export default function App() {
                   <Box
                     sx={{
                       position: 'absolute',
-                      bottom: 14,
-                      left: 12,
-                      right: 12,
+                      bottom: 'calc(12px + env(safe-area-inset-bottom))',
+                      left: 'calc(12px + env(safe-area-inset-left))',
+                      right: 'calc(12px + env(safe-area-inset-right))',
                       display: 'flex',
                       alignItems: 'flex-end',
                       justifyContent: 'space-between',
