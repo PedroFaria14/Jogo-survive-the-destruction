@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 
 import { sfx } from './sfx.js';
+import { STRINGS, detectLanguage, translate } from './i18n.js';
 
 // Telas de carregamento sorteadas: carrega automaticamente qualquer imagem
 // com prefixo "carregamento" em frontend/assets/ (sem mexer no código).
@@ -497,63 +498,69 @@ function drawBuffIcon(ctx, x, y, buff, now) {
 // =======================
 // Leaderboard
 // =======================
-const Leaderboard = React.memo(({ scores, highlightName }) => (
-  <Paper
-    sx={{
-      p: 3,
-      borderRadius: 4,
-      bgcolor: PALETTE.cream,
-      border: `1px solid rgba(201,111,74,0.45)`,
-      boxShadow: '0 10px 30px rgba(90,70,40,0.12)',
-    }}
-  >
-    <Typography variant="h6" color={PALETTE.terracottaStrong} gutterBottom>
-      🏅 Top 10 Sobreviventes
-    </Typography>
-
-    {scores.length === 0 ? (
-      <Typography variant="body2" color="text.secondary">
-        Nenhum placar registrado ainda.
+const Leaderboard = React.memo(({ scores, highlightName, lang }) => {
+  const dict = STRINGS[lang];
+  return (
+    <Paper
+      sx={{
+        p: 3,
+        borderRadius: 4,
+        bgcolor: PALETTE.cream,
+        border: `1px solid rgba(201,111,74,0.45)`,
+        boxShadow: '0 10px 30px rgba(90,70,40,0.12)',
+      }}
+    >
+      <Typography variant="h6" color={PALETTE.terracottaStrong} gutterBottom>
+        {dict['leaderboard.title']}
       </Typography>
-    ) : (
-      <List dense>
-        {scores.map((score, index) => {
-          const name =
-            score.name || (score.player_id ? `Player_${score.player_id.slice(-4)}` : 'Anônimo');
-          const hl = highlightName && name === highlightName;
-          return (
-            <ListItem
-              key={index}
-              sx={{
-                bgcolor: hl
-                  ? 'rgba(217,154,43,0.28)'
-                  : 'rgba(240,224,196,0.6)',
-                borderRadius: 2,
-                mb: 1,
-              }}
-            >
-              <Chip
-                label={index + 1}
-                size="small"
-                sx={{ mr: 2 }}
-                color={index < 3 ? 'warning' : 'default'}
-              />
 
-              <ListItemText
-                primary={name}
-                primaryTypographyProps={{ fontWeight: hl ? 800 : 400 }}
-              />
+      {scores.length === 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          {dict['leaderboard.empty']}
+        </Typography>
+      ) : (
+        <List dense>
+          {scores.map((score, index) => {
+            const name =
+              score.name ||
+              (score.player_id
+                ? `Player_${score.player_id.slice(-4)}`
+                : dict['leaderboard.anon']);
+            const hl = highlightName && name === highlightName;
+            return (
+              <ListItem
+                key={index}
+                sx={{
+                  bgcolor: hl
+                    ? 'rgba(217,154,43,0.28)'
+                    : 'rgba(240,224,196,0.6)',
+                  borderRadius: 2,
+                  mb: 1,
+                }}
+              >
+                <Chip
+                  label={index + 1}
+                  size="small"
+                  sx={{ mr: 2 }}
+                  color={index < 3 ? 'warning' : 'default'}
+                />
 
-              <Typography color={PALETTE.goldStrong} fontWeight="bold">
-                {score.score_seconds}s
-              </Typography>
-            </ListItem>
-          );
-        })}
-      </List>
-    )}
-  </Paper>
-));
+                <ListItemText
+                  primary={name}
+                  primaryTypographyProps={{ fontWeight: hl ? 800 : 400 }}
+                />
+
+                <Typography color={PALETTE.goldStrong} fontWeight="bold">
+                  {score.score_seconds}s
+                </Typography>
+              </ListItem>
+            );
+          })}
+        </List>
+      )}
+    </Paper>
+  );
+});
 
 // Verdadeiro se o evento veio de um campo de texto (não acionar atalhos).
 function isTypingTarget(e) {
@@ -578,10 +585,24 @@ export default function App() {
   const [bestScore, setBestScore] = useState(0);
   const [isTouch, setIsTouch] = useState(false);
   const [backendStatus, setBackendStatus] = useState('checking');
+  const [lang, setLang] = useState(detectLanguage);
+  const t = useCallback((key, vars) => translate(STRINGS[lang], key, vars), [lang]);
+  const toggleLang = useCallback(() => {
+    setLang((l) => (l === 'pt' ? 'en' : 'pt'));
+  }, []);
   // Sorteio de uma tela de carregamento por visita.
   const [carregamentoImg] = useState(
     () => loadingImages[Math.floor(Math.random() * loadingImages.length)]
   );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('lang', lang);
+    } catch {
+      // localStorage indisponível: ignora.
+    }
+    document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en';
+  }, [lang]);
 
   // O estado do jogo (60 FPS) é guardado em ref e desenhado no canvas via
   // requestAnimationFrame. A UI (overlays/sidebar) usa um snapshot `ui`
@@ -717,6 +738,43 @@ export default function App() {
   const startNewMatch = useCallback(() => {
     sfx.click();
     window.location.reload();
+  }, []);
+
+  // =======================
+  // Sair da partida (volta ao menu sem recarregar a página)
+  // =======================
+  const handleExit = useCallback(() => {
+    sfx.click();
+    startedRef.current = false;
+    gameStateRef.current = null;
+    keysRef.current = { left: false, right: false, jump: false, dash: false };
+    animsRef.current = {};
+    particlesRef.current = [];
+    shakeRef.current = 0;
+    prevTilesRef.current = {};
+    prevRoundOverRef.current = null;
+    impactsRef.current = {};
+    prevLivesRef.current = null;
+    prevDeadRef.current = false;
+    lastUiRef.current = 0;
+    powerUpPrevRef.current = {};
+    prevBuffRef.current = null;
+    setDeathPrompt(false);
+    setDeathInfo(null);
+    setMyPlayerId(null);
+    setUi((u) => ({
+      ...u,
+      round_over: false,
+      countdown: 0,
+      players: {},
+      myPlayer: null,
+      aliveCount: 0,
+      aliveAny: false,
+    }));
+    setGameStarted(false);
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
   }, []);
 
   // =======================
@@ -1500,17 +1558,33 @@ export default function App() {
           gap: 3,
           p: 3,
           textAlign: 'center',
+          position: 'relative',
           background:
             'linear-gradient(180deg, #fdf0d8 0%, #f6e3c5 45%, #efc58b 100%)',
         }}
       >
+        <Button
+          variant="outlined"
+          size="small"
+          sx={{
+            position: 'absolute',
+            top: 'calc(12px + env(safe-area-inset-top))',
+            right: 'calc(12px + env(safe-area-inset-right))',
+            minWidth: 52,
+            color: PALETTE.textBrown,
+            borderColor: PALETTE.borderSoft,
+          }}
+          onClick={toggleLang}
+        >
+          {lang === 'pt' ? 'EN' : 'PT'}
+        </Button>
         {isError ? (
           <>
             <Typography variant="h4" color={PALETTE.fallingDark} fontWeight={800}>
-              Não foi possível conectar ao servidor
+              {t('loading.errorTitle')}
             </Typography>
             <Typography color={PALETTE.textSoft}>
-              Verifique sua conexão e tente novamente.
+              {t('loading.errorMsg')}
             </Typography>
             <Button
               variant="contained"
@@ -1518,7 +1592,7 @@ export default function App() {
               sx={{ bgcolor: PALETTE.olive, '&:hover': { bgcolor: '#5f6d30' } }}
               onClick={checkBackend}
             >
-              TENTAR NOVAMENTE
+              {t('loading.retry')}
             </Button>
           </>
         ) : (
@@ -1534,7 +1608,7 @@ export default function App() {
               }}
             />
             <Typography variant="h6" color={PALETTE.textBrown} fontWeight={700}>
-              Carregando jogo...
+              {t('loading.checking')}
             </Typography>
           </>
         )}
@@ -1625,8 +1699,23 @@ export default function App() {
 
               {!gameStarted && (
                 <Box sx={overlaySx}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    sx={{
+                      position: 'absolute',
+                      top: 'calc(8px + env(safe-area-inset-top))',
+                      right: 'calc(8px + env(safe-area-inset-right))',
+                      minWidth: 52,
+                      color: PALETTE.textBrown,
+                      borderColor: PALETTE.borderSoft,
+                    }}
+                    onClick={toggleLang}
+                  >
+                    {lang === 'pt' ? 'EN' : 'PT'}
+                  </Button>
                   <Typography variant="h5" color={PALETTE.terracottaStrong} fontWeight={700}>
-                    Escolha seu nome
+                    {t('start.chooseName')}
                   </Typography>
                   <TextField
                     value={nickname}
@@ -1647,13 +1736,13 @@ export default function App() {
                     }}
                   >
                     <Typography variant="body2" color={PALETTE.textSoft}>
-                      Cor da bolinha:
+                      {t('start.ballColor')}
                     </Typography>
                     <input
                       type="color"
                       value={ballColor}
                       onChange={(e) => setBallColor(e.target.value)}
-                      aria-label="Cor da bolinha"
+                      aria-label={t('start.ballColor')}
                       style={{
                         width: 44,
                         height: 44,
@@ -1670,13 +1759,10 @@ export default function App() {
                     sx={{ bgcolor: PALETTE.olive, '&:hover': { bgcolor: '#5f6d30' } }}
                     onClick={handleStartGame}
                   >
-                    INICIAR JOGO
+                    {t('start.play')}
                   </Button>
                   <Typography variant="body2" color={PALETTE.textSoft}>
-                    Use A/D ou ←/→ para mover, W ou Espaço para pular (×2 no ar).
-                    Shift para Dash (empurra oponentes). Enter também inicia.
-                    Pegue os drops: 🍄 vermelho = Tanque, 🍄 roxo = Velocista,
-                    💎 azul = Planar (um buff por vez).
+                    {t('start.instructions')}
                   </Typography>
                 </Box>
               )}
@@ -1684,7 +1770,7 @@ export default function App() {
               {gameStarted && ui.round_over && !deathPrompt && (
                 <Box sx={overlaySx}>
                   <Typography variant="h4" color={PALETTE.fallingDark} fontWeight={800}>
-                    NOVA RODADA
+                    {t('game.roundOver')}
                   </Typography>
                   <Typography
                     variant="h1"
@@ -1711,7 +1797,7 @@ export default function App() {
                     color={PALETTE.fallingDark}
                     fontWeight={800}
                   >
-                    VOCÊ CAIU!
+                    {t('death.title')}
                   </Typography>
 
                   {deathInfo && deathInfo.pos > 0 && (
@@ -1720,18 +1806,23 @@ export default function App() {
                       color={PALETTE.goldStrong}
                       fontWeight={800}
                     >
-                      Você ficou em {deathInfo.pos}º de{' '}
-                      {deathInfo.ranking.length}{' '}
-                      {deathInfo.ranking.length === 1 ? 'jogador' : 'jogadores'}
+                      {t('death.placed', {
+                        pos: deathInfo.pos,
+                        total: deathInfo.ranking.length,
+                        players: t(
+                          deathInfo.ranking.length === 1
+                            ? 'death.playersOne'
+                            : 'death.playersMany'
+                        ),
+                      })}
                     </Typography>
                   )}
 
                   <Typography variant="body2" color={PALETTE.textSoft}>
-                    Tempo sobrevivido: {deathInfo?.score ?? 0}s
+                    {t('death.timeSurvived', { time: deathInfo?.score ?? 0 })}
                   </Typography>
                   <Typography variant="body2" color={PALETTE.textSoft}>
-                    Suas vidas acabaram. Continue na próxima rodada ou entre
-                    em outra partida.
+                    {t('death.livesGone')}
                   </Typography>
 
                   <Typography
@@ -1740,7 +1831,7 @@ export default function App() {
                     fontWeight={700}
                     sx={{ mt: 1 }}
                   >
-                    Quer entrar em outra partida?
+                    {t('death.anotherMatch')}
                   </Typography>
                   <Box
                     sx={{
@@ -1766,7 +1857,7 @@ export default function App() {
                       }}
                       disabled={!ui.aliveAny}
                     >
-                      TENTAR NOVAMENTE
+                      {t('death.retry')}
                     </Button>
                     <Button
                       variant="outlined"
@@ -1783,7 +1874,7 @@ export default function App() {
                       }}
                       onClick={startNewMatch}
                     >
-                      OUTRA PARTIDA
+                      {t('death.otherMatch')}
                     </Button>
                     <Button
                       variant="outlined"
@@ -1800,7 +1891,7 @@ export default function App() {
                       }}
                       onClick={() => setDeathPrompt(false)}
                     >
-                      CONTINUAR
+                      {t('death.continue')}
                     </Button>
                   </Box>
 
@@ -1820,7 +1911,7 @@ export default function App() {
                         fontWeight={700}
                         color={PALETTE.textBrown}
                       >
-                        🏁 Ranking desta partida
+                        {t('death.ranking')}
                       </Typography>
                       <List dense>
                         {(deathInfo?.ranking ?? matchRanking).slice(0, 10).map((p, i) => (
@@ -1868,7 +1959,7 @@ export default function App() {
                           mt: 1,
                         }}
                       >
-                        <Leaderboard scores={scores} highlightName={nickname} />
+                        <Leaderboard scores={scores} highlightName={nickname} lang={lang} />
                       </Box>
                     )}
                   </Box>
@@ -1910,7 +2001,7 @@ export default function App() {
                           '0'}
                       </Box>
                       <Box component="div">
-                        Buff:{' '}
+                        {t('hud.buff')}{' '}
                         {ui.myPlayer?.buff
                           ? ui.myPlayer.buff === 'red_mushroom'
                             ? '🟥'
@@ -1919,7 +2010,7 @@ export default function App() {
                               : '🟦'
                           : '—'}
                       </Box>
-                      <Box component="div">Vivos: {ui.aliveCount}</Box>
+                      <Box component="div">{t('hud.alive')} {ui.aliveCount}</Box>
                     </Box>
                     {matchRanking.length > 0 && (
                       <Box
@@ -1950,25 +2041,64 @@ export default function App() {
                     )}
                   </Box>
 
-                  {/* Sair da tela cheia */}
-                  <Button
-                    variant="contained"
-                    size="small"
+                  {/* Botões superiores: idioma, sair da tela cheia, sair da partida */}
+                  <Box
                     sx={{
                       position: 'absolute',
                       top: 'calc(10px + env(safe-area-inset-top))',
                       right: 'calc(10px + env(safe-area-inset-right))',
-                      pointerEvents: 'auto',
-                      minWidth: 44,
-                      minHeight: 44,
-                      fontSize: '1.1rem',
-                      bgcolor: 'rgba(90,70,40,0.55)',
-                      '&:hover': { bgcolor: 'rgba(90,70,40,0.8)' },
+                      display: 'flex',
+                      gap: 1,
+                      pointerEvents: 'none',
                     }}
-                    onClick={exitFullscreen}
                   >
-                    ⛶
-                  </Button>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      sx={{
+                        pointerEvents: 'auto',
+                        minWidth: 44,
+                        minHeight: 44,
+                        fontSize: '0.8rem',
+                        bgcolor: 'rgba(90,70,40,0.55)',
+                        '&:hover': { bgcolor: 'rgba(90,70,40,0.8)' },
+                      }}
+                      onClick={toggleLang}
+                    >
+                      {lang === 'pt' ? 'EN' : 'PT'}
+                    </Button>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      sx={{
+                        pointerEvents: 'auto',
+                        minWidth: 44,
+                        minHeight: 44,
+                        fontSize: '1.1rem',
+                        bgcolor: 'rgba(90,70,40,0.55)',
+                        '&:hover': { bgcolor: 'rgba(90,70,40,0.8)' },
+                      }}
+                      onClick={exitFullscreen}
+                    >
+                      ⛶
+                    </Button>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      sx={{
+                        pointerEvents: 'auto',
+                        minWidth: 44,
+                        minHeight: 44,
+                        fontSize: '0.7rem',
+                        px: 1,
+                        bgcolor: 'rgba(140,60,50,0.75)',
+                        '&:hover': { bgcolor: 'rgba(140,60,50,0.95)' },
+                      }}
+                      onClick={handleExit}
+                    >
+                      {t('exit.mobile')}
+                    </Button>
+                  </Box>
 
                   {/* Controles: ◀ ▶ à esquerda, ⬆ ⚡ à direita */}
                   <Box
@@ -2058,7 +2188,7 @@ export default function App() {
               gap={3}
               sx={{ height: '100%', overflowY: 'auto' }}
             >
-              <Leaderboard scores={scores} />
+              <Leaderboard scores={scores} lang={lang} />
 
               <Paper
                 sx={{
@@ -2070,41 +2200,77 @@ export default function App() {
                 }}
               >
                 <Typography variant="h6" color={PALETTE.textBrown}>
-                  STATUS
+                  {t('sidebar.status')}
                 </Typography>
-                <Typography>Nome: {nickname}</Typography>
+                <Typography>{t('sidebar.name')} {nickname}</Typography>
                 <Typography>
-                  Tempo: {ui.myPlayer ? `${ui.myPlayer.score}s` : '0s'}
+                  {t('sidebar.time')} {ui.myPlayer ? `${ui.myPlayer.score}s` : '0s'}
                 </Typography>
                 <Typography color={PALETTE.goldStrong} fontWeight="bold">
-                  Recorde: {bestScore}s
+                  {t('sidebar.record')} {bestScore}s
                 </Typography>
-                <Typography>Rodada: {ui.round}</Typography>
-                <Typography>Vivos: {ui.aliveCount}</Typography>
+                <Typography>{t('sidebar.round')} {ui.round}</Typography>
+                <Typography>{t('sidebar.alive')} {ui.aliveCount}</Typography>
                 <Typography>
-                  Próximo drop:{' '}
+                  {t('sidebar.nextDrop')}{' '}
                   {ui.myPlayer && !ui.myPlayer.is_dead
                     ? `${ui.drop_countdown.toFixed(1)}s`
                     : '—'}
                 </Typography>
                 <Typography>
-                  Buff:{' '}
+                  {t('sidebar.buff')}{' '}
                   {ui.myPlayer?.buff
                     ? ui.myPlayer.buff === 'red_mushroom'
-                      ? '🟥 Tanque'
+                      ? `🟥 ${t('buff.tank')}`
                       : ui.myPlayer.buff === 'purple_mushroom'
-                        ? '🟪 Velocista'
-                        : '🟦 Planar'
-                    : 'Nenhum'}
+                        ? `🟪 ${t('buff.speedster')}`
+                        : `🟦 ${t('buff.glider')}`
+                    : t('buff.none')}
                 </Typography>
                 <Typography>
-                  Vidas:{' '}
+                  {t('sidebar.lives')}{' '}
                   {'❤'.repeat(ui.myPlayer?.lives ?? cfg.max_lives ?? 3) ||
                     '0'}
                 </Typography>
                 {ui.myPlayer && ui.myPlayer.is_dead && (
-                  <Typography color="error.main">💀 Espectando...</Typography>
+                  <Typography color="error.main">{t('sidebar.spectating')}</Typography>
                 )}
+                <Box
+                  sx={{
+                    mt: 1.5,
+                    pt: 1.5,
+                    borderTop: `1px dashed rgba(201,111,74,0.35)`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 1,
+                  }}
+                >
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    fullWidth
+                    sx={{
+                      color: PALETTE.textSoft,
+                      borderColor: PALETTE.textSoft,
+                      '&:hover': {
+                        borderColor: PALETTE.textSoft,
+                        bgcolor: 'rgba(120,105,80,0.08)',
+                      },
+                    }}
+                    onClick={handleExit}
+                  >
+                    {t('exit.label')}
+                  </Button>
+                  <Button
+                    variant="text"
+                    size="small"
+                    fullWidth
+                    sx={{ color: PALETTE.textBrown }}
+                    onClick={toggleLang}
+                  >
+                    {lang === 'pt' ? 'EN' : 'PT'}
+                  </Button>
+                </Box>
               </Paper>
             </Box>
           </Box>
