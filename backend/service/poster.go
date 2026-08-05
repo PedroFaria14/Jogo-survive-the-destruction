@@ -21,6 +21,8 @@ type ScoreService interface {
 	GetTopScores() ([]Score, error)
 	// SaveScore recebe o ID do jogador, o nome, o placar em segundos e a duração total.
 	SaveScore(playerID, playerName string, scoreSeconds int, duration time.Duration) error
+	// Close libera a conexão com o banco de dados.
+	Close() error
 }
 
 // PostgresScoreService é a implementação que usa o PostgreSQL
@@ -70,6 +72,11 @@ func NewPostgresScoreService(connStr string) (ScoreService, error) {
 	return service, nil
 }
 
+// Close fecha a conexão com o banco de dados.
+func (s *PostgresScoreService) Close() error {
+	return s.DB.Close()
+}
+
 // GetTopScores busca os 10 melhores placares do banco de dados
 func (s *PostgresScoreService) GetTopScores() ([]Score, error) {
 	query := `SELECT player_id, player_name, score_seconds FROM scores ORDER BY score_seconds DESC LIMIT 10`
@@ -80,7 +87,8 @@ func (s *PostgresScoreService) GetTopScores() ([]Score, error) {
 	}
 	defer rows.Close()
 
-	var scores []Score
+	// Inicializa como slice vazio (não nil) para o JSON serializar [] e não null.
+	scores := make([]Score, 0)
 	for rows.Next() {
 		var score Score
 		// Assumindo que Name é o mesmo que PlayerID para este MVP

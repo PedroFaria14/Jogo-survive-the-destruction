@@ -1,3 +1,37 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Reset global: remove a margem padrão do body (linha branca em volta da
+   página) e faz html/body/#root ocuparem a janela inteira. Trava a tela:
+   sem barras de rolagem (o jogo + placares fixos devem caber na janela;
+   sidebar e overlays rolam internamente). */
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+}
+
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  background: #fdf0d8; /* combina com o topo do gradiente (sem flash branco) */
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Remove a borda branca de foco ao clicar no canvas do jogo e evita
+   seleção de texto com cliques repetidos no jogo. */
+canvas,
+canvas:focus {
+  outline: none !important;
+}
+
+.game-canvas {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}

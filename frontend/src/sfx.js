@@ -75,6 +75,13 @@ export const sfx = {
   click() {
     tone(600, 400, 0.06, 'square', 0.06);
   },
+  pickup() {
+    tone(440, 880, 0.18, 'triangle', 0.14);
+    tone(660, 1320, 0.12, 'sine', 0.09, 0.06);
+  },
+  buffEnd() {
+    tone(520, 220, 0.3, 'triangle', 0.11);
+  },
 };
 
 export default sfx;

@@ -2,15 +2,19 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"game-backend/controller"
 	"game-backend/routes"
 	"game-backend/service"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // findEnvFile localiza o arquivo .env independentemente do diretório de
@@ -93,7 +97,7 @@ func main() {
 	}
 
 	// Fechará a conexão com o DB quando a função main() terminar.
-	defer scoreService.(*service.PostgresScoreService).DB.Close()
+	defer scoreService.Close()
 
 	// 2. Cria e Inicia o Hub (o loop principal do jogo)
 	// Passa o serviço de placar para o Hub
@@ -105,11 +109,31 @@ func main() {
 		AllowedOrigins: getenv("ALLOWED_ORIGINS", "http://localhost:5173"),
 	})
 
-	// 4. Inicia o servidor HTTP
+	// 4. Inicia o servidor HTTP com timeouts e desligamento gracioso.
 	addr := getenv("HTTP_ADDR", ":8080")
-	log.Printf("Servidor iniciado em %s", addr)
-	err = http.ListenAndServe(addr, nil)
-	if err != nil {
-		log.Fatal("ListenAndServe:", err)
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           nil,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	go func() {
+		log.Printf("Servidor iniciado em %s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal("ListenAndServe:", err)
+		}
+	}()
+
+	// Aguarda SIGINT/SIGTERM para encerrar o servidor de forma graciosa.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+
+	log.Println("Encerrando servidor...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Erro ao encerrar o servidor: %v", err)
 	}
 }

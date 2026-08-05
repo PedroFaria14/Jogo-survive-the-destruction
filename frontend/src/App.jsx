@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Box,
   Container,
-  Grid,
   Paper,
   Typography,
   Button,
@@ -19,14 +18,16 @@ import { sfx } from './sfx.js';
 // =======================
 // Configurações
 // =======================
-const GAME_WS_URL = 'ws://localhost:8080/ws';
-const SCORES_API_URL = 'http://localhost:8080/api/scores';
-const CONFIG_API_URL = 'http://localhost:8080/api/config';
+// URLs configuráveis via variáveis de ambiente Vite (VITE_*) com fallback local.
+const GAME_WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+const SCORES_API_URL = `${API_BASE_URL}/api/scores`;
+const CONFIG_API_URL = `${API_BASE_URL}/api/config`;
 
 // Fallback das constantes do jogo (o servidor fornece via /api/config)
 const DEFAULT_CFG = {
   arena_width: 800,
-  arena_height: 600,
+  arena_height: 1000,
   tile_size: 100,
   player_radius: 25,
   move_speed: 8,
@@ -42,9 +43,14 @@ const DEFAULT_CFG = {
   restitution: 0.85,
   min_islands: 3,
   max_islands: 7,
-  island_width_min: 2,
-  island_width_max: 5,
+  island_width_min: 1,
+  island_width_max: 6,
   max_gap_cols: 2,
+  powerup_interval: 4,
+  powerup_lifetime: 6,
+  red_duration: 8,
+  purple_duration: 6,
+  blue_duration: 8,
 };
 
 // Configuração das animações da bola
@@ -90,6 +96,19 @@ const PALETTE = {
   goldStrong: '#d99a2b',
   terracottaStrong: '#c96f4a',
   borderSoft: 'rgba(145,110,64,0.55)',
+  // Power-ups
+  redMushTop: '#ff6b5e',
+  redMushDark: '#c93a3a',
+  redMushSpot: '#ffe9dc',
+  purpleMushTop: '#b06fd6',
+  purpleMushDark: '#7d44a3',
+  purpleMushSpot: '#f3e2ff',
+  crystalLight: '#cfefff',
+  crystalMid: '#5fb9e8',
+  crystalDark: '#2f7fb5',
+  buffTintRed: 'rgba(255,107,94,0.22)',
+  buffTintPurple: 'rgba(176,111,214,0.22)',
+  buffTintBlue: 'rgba(95,185,232,0.22)',
 };
 
 // Caminho de retângulo com cantos arredondados (sem depender de ctx.roundRect).
@@ -152,10 +171,144 @@ function drawCloud(ctx, x, y, s) {
   ctx.fill();
 }
 
+// Cogumelo (red = Tanque, purple = Velocista): capa arredondada + caule.
+function drawMushroom(ctx, x, y, type) {
+  const red = type === 'red_mushroom';
+  const cap = red ? PALETTE.redMushTop : PALETTE.purpleMushTop;
+  const capDark = red ? PALETTE.redMushDark : PALETTE.purpleMushDark;
+  const spot = red ? PALETTE.redMushSpot : PALETTE.purpleMushSpot;
+
+  // Caule
+  ctx.fillStyle = '#f6ead2';
+  roundRectPath(ctx, x - 4, y + 2, 8, 9, 3);
+  ctx.fill();
+
+  // Capa
+  ctx.fillStyle = cap;
+  ctx.beginPath();
+  ctx.moveTo(x - 13, y + 2);
+  ctx.quadraticCurveTo(x - 13, y - 13, x, y - 13);
+  ctx.quadraticCurveTo(x + 13, y - 13, x + 13, y + 2);
+  ctx.closePath();
+  ctx.fill();
+
+  // Brilho na capa
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(x - 5, y - 7, 4, 2.4, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pintas
+  ctx.fillStyle = spot;
+  ctx.beginPath();
+  ctx.arc(x - 6, y - 4, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x + 6, y - 2, 1.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Borda da capa
+  ctx.strokeStyle = capDark;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x - 13, y + 2);
+  ctx.quadraticCurveTo(x - 13, y - 13, x, y - 13);
+  ctx.quadraticCurveTo(x + 13, y - 13, x + 13, y + 2);
+  ctx.stroke();
+}
+
+// Cristal azul (Planar): gema facetada flutuante.
+function drawCrystal(ctx, x, y) {
+  ctx.fillStyle = PALETTE.crystalDark;
+  ctx.beginPath();
+  ctx.moveTo(x, y - 14);
+  ctx.lineTo(x + 9, y - 4);
+  ctx.lineTo(x + 6, y + 9);
+  ctx.lineTo(x - 6, y + 9);
+  ctx.lineTo(x - 9, y - 4);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = PALETTE.crystalMid;
+  ctx.beginPath();
+  ctx.moveTo(x, y - 14);
+  ctx.lineTo(x + 9, y - 4);
+  ctx.lineTo(x, y);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = PALETTE.crystalLight;
+  ctx.beginPath();
+  ctx.moveTo(x, y - 14);
+  ctx.lineTo(x - 9, y - 4);
+  ctx.lineTo(x - 3, y - 4);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = PALETTE.crystalDark;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(x, y - 14);
+  ctx.lineTo(x, y);
+  ctx.moveTo(x - 9, y - 4);
+  ctx.lineTo(x + 9, y - 4);
+  ctx.stroke();
+}
+
+// Drop de power-up: glow + shape + bobbing suave (sempre visível a todos).
+function drawPowerUpDrop(ctx, pu, now) {
+  const bob = Math.sin(now / 320 + (pu.id ? pu.id.length : 0)) * 2;
+  const y = pu.y + bob;
+  const glowColor =
+    pu.type === 'red_mushroom'
+      ? PALETTE.redMushTop
+      : pu.type === 'purple_mushroom'
+        ? PALETTE.purpleMushTop
+        : PALETTE.crystalMid;
+
+  ctx.save();
+  ctx.translate(pu.x, y);
+
+  // Anel de brilho pulsante
+  ctx.shadowColor = glowColor;
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = glowColor;
+  ctx.globalAlpha = 0.16 + Math.sin(now / 260) * 0.05;
+  ctx.beginPath();
+  ctx.arc(0, 0, 15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  if (pu.type === 'blue_crystal') {
+    drawCrystal(ctx, 0, 0);
+  } else {
+    drawMushroom(ctx, 0, 0, pu.type);
+  }
+  ctx.restore();
+}
+
 // =======================
 // Desenho da bola (animado)
 // =======================
-function drawPlayerBall(ctx, player, anim, now, dt, radius) {
+function drawPlayerBall(ctx, player, anim, now, dt, radius, buff) {
+  // Cores e glow do rastro conforme o buff ativo.
+  const trailColor =
+    buff === 'red_mushroom'
+      ? PALETTE.redMushTop
+      : buff === 'purple_mushroom'
+        ? PALETTE.purpleMushTop
+        : buff === 'blue_crystal'
+          ? PALETTE.crystalMid
+          : PALETTE.trailRGB;
+  const glowColor =
+    buff === 'red_mushroom'
+      ? PALETTE.redMushDark
+      : buff === 'purple_mushroom'
+        ? PALETTE.purpleMushDark
+        : buff === 'blue_crystal'
+          ? PALETTE.crystalLight
+          : PALETTE.ballGlow;
+
   // Trilha/trail
   anim.trail.push({ x: player.x, y: player.y });
   if (anim.trail.length > TRAIL_LENGTH) anim.trail.shift();
@@ -163,7 +316,7 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius) {
   anim.trail.forEach((t, i) => {
     const alpha = (i / TRAIL_LENGTH) * 0.22;
     const r = radius * 0.55 * (i / TRAIL_LENGTH);
-    ctx.fillStyle = `rgba(${PALETTE.trailRGB},${alpha.toFixed(3)})`;
+    ctx.fillStyle = `rgba(${trailColor},${alpha.toFixed(3)})`;
     ctx.beginPath();
     ctx.arc(t.x, t.y, r, 0, Math.PI * 2);
     ctx.fill();
@@ -198,9 +351,23 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius) {
   ctx.translate(player.x, player.y);
   ctx.scale(scaleX, scaleY);
 
-  // Pulso/brilho
-  ctx.shadowColor = PALETTE.ballGlow;
+  // Pulso/brilho (cor depende do buff)
+  ctx.shadowColor = glowColor;
   ctx.shadowBlur = 16 + Math.sin(now / GLOW_PULSE_SPEED) * 6;
+
+  // Tinta do buff sobre a bola
+  if (buff) {
+    const tint =
+      buff === 'red_mushroom'
+        ? PALETTE.buffTintRed
+        : buff === 'purple_mushroom'
+          ? PALETTE.buffTintPurple
+          : PALETTE.buffTintBlue;
+    ctx.fillStyle = tint;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   const grad = ctx.createRadialGradient(-6, -6, 4, 0, 0, radius);
   grad.addColorStop(0, PALETTE.ballHi);
@@ -227,6 +394,20 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius) {
   ctx.beginPath();
   ctx.arc(0, 0, radius, 0, Math.PI * 2);
   ctx.stroke();
+
+  // Planar: hélice de vento ao planar (partículas espirais de gelo)
+  if (buff === 'blue_crystal') {
+    ctx.strokeStyle = 'rgba(207,239,255,0.7)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let a = 0; a < Math.PI * 2; a += 0.3) {
+      const rx = radius * 1.35 * Math.cos(a);
+      const ry = radius * 1.35 * Math.sin(a) * 0.5;
+      ctx.moveTo(rx * 0.85, ry * 0.85);
+      ctx.lineTo(rx, ry);
+    }
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -245,10 +426,23 @@ function drawGhost(ctx, player, radius) {
   ctx.setLineDash([]);
 }
 
+// Ícone do buff flutuando acima da cabeça (visível para todos os jogadores).
+function drawBuffIcon(ctx, x, y, buff, now) {
+  const bob = Math.sin(now / 280) * 2;
+  ctx.save();
+  ctx.translate(x, y - 34 + bob);
+  if (buff === 'blue_crystal') {
+    drawCrystal(ctx, 0, 0);
+  } else {
+    drawMushroom(ctx, 0, 0, buff);
+  }
+  ctx.restore();
+}
+
 // =======================
 // Leaderboard
 // =======================
-const Leaderboard = ({ scores }) => (
+const Leaderboard = React.memo(({ scores, highlightName }) => (
   <Paper
     sx={{
       p: 3,
@@ -268,42 +462,55 @@ const Leaderboard = ({ scores }) => (
       </Typography>
     ) : (
       <List dense>
-        {scores.map((score, index) => (
-          <ListItem
-            key={index}
-            sx={{
-              bgcolor: 'rgba(240,224,196,0.6)',
-              borderRadius: 2,
-              mb: 1,
-            }}
-          >
-            <Chip
-              label={index + 1}
-              size="small"
-              sx={{ mr: 2 }}
-              color={index < 3 ? 'warning' : 'default'}
-            />
+        {scores.map((score, index) => {
+          const name =
+            score.name || (score.player_id ? `Player_${score.player_id.slice(-4)}` : 'Anônimo');
+          const hl = highlightName && name === highlightName;
+          return (
+            <ListItem
+              key={index}
+              sx={{
+                bgcolor: hl
+                  ? 'rgba(217,154,43,0.28)'
+                  : 'rgba(240,224,196,0.6)',
+                borderRadius: 2,
+                mb: 1,
+              }}
+            >
+              <Chip
+                label={index + 1}
+                size="small"
+                sx={{ mr: 2 }}
+                color={index < 3 ? 'warning' : 'default'}
+              />
 
-            <ListItemText
-              primary={score.name || (score.player_id ? `Player_${score.player_id.slice(-4)}` : 'Anônimo')}
-            />
+              <ListItemText
+                primary={name}
+                primaryTypographyProps={{ fontWeight: hl ? 800 : 400 }}
+              />
 
-            <Typography color={PALETTE.goldStrong} fontWeight="bold">
-              {score.score_seconds}s
-            </Typography>
-          </ListItem>
-        ))}
+              <Typography color={PALETTE.goldStrong} fontWeight="bold">
+                {score.score_seconds}s
+              </Typography>
+            </ListItem>
+          );
+        })}
       </List>
     )}
   </Paper>
-);
+));
+
+// Verdadeiro se o evento veio de um campo de texto (não acionar atalhos).
+function isTypingTarget(e) {
+  const t = e.target;
+  return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+}
 
 // =======================
 // App
 // =======================
 export default function App() {
   const [cfg, setCfg] = useState(DEFAULT_CFG);
-  const [gameState, setGameState] = useState(null);
   const [scores, setScores] = useState([]);
   const [myPlayerId, setMyPlayerId] = useState(null);
   const [gameStarted, setGameStarted] = useState(false);
@@ -313,25 +520,62 @@ export default function App() {
   const [bestScore, setBestScore] = useState(0);
   const [isTouch, setIsTouch] = useState(false);
 
+  // O estado do jogo (60 FPS) é guardado em ref e desenhado no canvas via
+  // requestAnimationFrame. A UI (overlays/sidebar) usa um snapshot `ui`
+  // atualizado em baixa frequência, evitando re-render do React a cada frame.
+  const gameStateRef = useRef(null);
+  const [ui, setUi] = useState({
+    round: 1,
+    round_over: false,
+    countdown: 0,
+    drop_countdown: 0,
+    arena_width: DEFAULT_CFG.arena_width,
+    arena_height: DEFAULT_CFG.arena_height,
+    players: {},
+    myPlayer: null,
+    aliveCount: 0,
+    aliveAny: false,
+  });
+
+  // Ranking da partida atual: todos os jogadores ordenados por score (tempo
+  // sobrevivido), usado no overlay de derrota.
+  const matchRanking = useMemo(() => {
+    return Object.values(ui.players || {})
+      .filter((p) => p && p.id)
+      .sort((a, b) => (b.score || 0) - (a.score || 0));
+  }, [ui.players]);
+  const myPos =
+    ui.myPlayer && matchRanking.length > 0
+      ? matchRanking.findIndex((p) => p.id === ui.myPlayer.id) + 1
+      : 0;
+
+  // Prompt persistente de "outra partida" (disparado ao perder as 3 vidas).
+  // Fica aberto até o jogador decidir, mesmo que a rodada reinicie por baixo.
+  const [deathPrompt, setDeathPrompt] = useState(false);
+  const [deathInfo, setDeathInfo] = useState(null);
+
   const socketRef = useRef(null);
   const canvasRef = useRef(null);
   const startedRef = useRef(false);
   const nicknameRef = useRef(nickname);
+  const myPlayerIdRef = useRef(null);
   const keysRef = useRef({ left: false, right: false, jump: false, dash: false });
   const animsRef = useRef({});
-  const lastDrawTimeRef = useRef(null);
   const particlesRef = useRef([]);
   const shakeRef = useRef(0);
   const prevTilesRef = useRef({});
   const prevRoundOverRef = useRef(null);
   const impactsRef = useRef({});
   const prevLivesRef = useRef(null);
+  const prevDeadRef = useRef(false);
+  const lastUiRef = useRef(0);
+  const cfgRef = useRef(cfg);
+  const powerUpPrevRef = useRef({});
+  const prevBuffRef = useRef(null);
 
   // Dimensões da arena: o servidor envia por rodada (mapa procedural muda).
-  const arenaW = gameState?.arena_width ?? cfg.arena_width;
-  const arenaH = gameState?.arena_height ?? cfg.arena_height;
-  const tileSize = cfg.tile_size;
-  const playerRadius = cfg.player_radius;
+  const arenaW = ui.arena_width ?? cfg.arena_width;
+  const arenaH = ui.arena_height ?? cfg.arena_height;
 
   // =======================
   // Start Game
@@ -341,7 +585,38 @@ export default function App() {
     sfx.click();
     startedRef.current = true;
     setGameStarted(true);
-    setGameState(null);
+    gameStateRef.current = null;
+    prevDeadRef.current = false;
+    setDeathPrompt(false);
+    setDeathInfo(null);
+    setUi((u) => ({
+      ...u,
+      round_over: false,
+      countdown: 0,
+      players: {},
+      myPlayer: null,
+      aliveCount: 0,
+      aliveAny: false,
+    }));
+    // Tela cheia no celular (Android): esconde a barra do navegador. iOS ignora.
+    if (isTouch && document.documentElement.requestFullscreen) {
+      document.documentElement
+        .requestFullscreen()
+        .catch(() => {});
+    }
+    // Trava a orientação em retrato no celular (Android; iOS ignora).
+    if (isTouch && window.screen?.orientation?.lock) {
+      window.screen.orientation
+        .lock('portrait')
+        .catch(() => {});
+    }
+  }, [isTouch]);
+
+  // Sai da tela cheia (mobile) sem recarregar a página.
+  const exitFullscreen = useCallback(() => {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
   }, []);
 
   // =======================
@@ -373,6 +648,14 @@ export default function App() {
   }, []);
 
   // =======================
+  // Entrar em outra partida (reinicia tudo: volta à tela inicial e reconecta)
+  // =======================
+  const startNewMatch = useCallback(() => {
+    sfx.click();
+    window.location.reload();
+  }, []);
+
+  // =======================
   // Config compartilhada (evita drift backend/frontend)
   // =======================
   useEffect(() => {
@@ -382,13 +665,60 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  // Detecta a 3ª queda (is_dead false → true) e abre o prompt persistente de
+  // "outra partida". Em partida solo o round_over acontece no mesmo instante,
+  // por isso o prompt não depende mais de round_over.
+  useEffect(() => {
+    const dead = !!ui.myPlayer?.is_dead;
+    if (dead && !prevDeadRef.current) {
+      prevDeadRef.current = true;
+      setDeathPrompt(true);
+      setDeathInfo({
+        score: ui.myPlayer.score ?? 0,
+        pos: myPos,
+        ranking: matchRanking,
+      });
+    } else if (!dead) {
+      prevDeadRef.current = false;
+    }
+  }, [ui.myPlayer, myPos, matchRanking]);
+
+  // Mantém refs sincronizadas
+  useEffect(() => {
+    nicknameRef.current = nickname;
+  }, [nickname]);
+
+  useEffect(() => {
+    myPlayerIdRef.current = myPlayerId;
+  }, [myPlayerId]);
+
+  useEffect(() => {
+    cfgRef.current = cfg;
+  }, [cfg]);
+
   // =======================
   // Teclado
   // =======================
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.repeat) return;
+      if (isTypingTarget(e)) return;
       const k = e.key.toLowerCase();
+
+      // Bloqueia o comportamento padrão ANTES do auto-repeat (segurar a tecla
+      // não pode rolar a página nem re-acionar botões em foco).
+      if (
+        k === ' ' ||
+        k === 'w' ||
+        k === 'a' ||
+        k === 'd' ||
+        k === 'arrowleft' ||
+        k === 'arrowright' ||
+        k === 'shift'
+      ) {
+        e.preventDefault();
+      }
+
+      if (e.repeat) return;
 
       if (k === 'a' || k === 'arrowleft') {
         keysRef.current.left = true;
@@ -418,18 +748,36 @@ export default function App() {
     };
 
     const handleStartKey = (e) => {
-      if (!startedRef.current && (e.key === 'Enter' || e.key === ' ')) {
+      // Não inicia o jogo ao digitar espaço/Enter em um campo de texto.
+      if (!startedRef.current && !isTypingTarget(e) && (e.key === 'Enter' || e.key === ' ')) {
+        e.preventDefault();
         handleStartGame();
       }
+    };
+
+    // Se a página perder o foco, nenhuma tecla deve permanecer pressionada.
+    const resetKeys = () => {
+      const k = keysRef.current;
+      if (k.left || k.right || k.jump || k.dash) {
+        k.left = k.right = k.jump = k.dash = false;
+        sendFrame();
+      }
+    };
+    const handleVisibility = () => {
+      if (document.hidden) resetKeys();
     };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('keydown', handleStartKey);
+    window.addEventListener('blur', resetKeys);
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('keydown', handleStartKey);
+      window.removeEventListener('blur', resetKeys);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [sendFrame, handleStartGame]);
 
@@ -452,43 +800,85 @@ export default function App() {
   };
 
   // =======================
-  // WebSocket
+  // WebSocket (com reconexão automática)
   // =======================
   useEffect(() => {
     if (!gameStarted) return;
 
-    const ws = new WebSocket(GAME_WS_URL);
-    socketRef.current = ws;
+    let ws = null;
+    let timer = null;
+    let closed = false;
+    let attempts = 0;
 
-    ws.onopen = () => {
-      console.log('🟢 WebSocket conectado');
-      sfx.unlock();
-      ws.send(JSON.stringify({ type: 'join', name: nicknameRef.current }));
+    const connect = () => {
+      ws = new WebSocket(GAME_WS_URL);
+      socketRef.current = ws;
+
+      ws.onopen = () => {
+        attempts = 0;
+        console.log('🟢 WebSocket conectado');
+        sfx.unlock();
+        ws.send(JSON.stringify({ type: 'join', name: nicknameRef.current }));
+      };
+
+      ws.onmessage = (event) => {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+
+        if (data.type === 'init') {
+          setMyPlayerId(data.player_id);
+          return;
+        }
+
+        if (data.type) return;
+
+        // Estado do jogo: guarda no ref para o canvas e atualiza a UI
+        // (throttled) para os elementos de texto/HUD.
+        gameStateRef.current = data;
+        const nowMs = performance.now();
+        if (nowMs - lastUiRef.current >= 250) {
+          lastUiRef.current = nowMs;
+          const players = data.players || {};
+          const aliveCount = Object.values(players).filter((p) => !p.is_dead).length;
+          setUi({
+            round: data.round ?? 1,
+            round_over: data.round_over ?? false,
+            countdown: data.countdown ?? 0,
+            drop_countdown: data.drop_countdown ?? 0,
+            arena_width: data.arena_width ?? cfgRef.current.arena_width,
+            arena_height: data.arena_height ?? cfgRef.current.arena_height,
+            players,
+            myPlayer: players[myPlayerIdRef.current] || null,
+            aliveCount,
+            aliveAny: aliveCount > 0,
+          });
+        }
+      };
+
+      ws.onerror = (err) => console.error('WebSocket erro', err);
+
+      ws.onclose = () => {
+        console.log('🔴 WebSocket fechado');
+        if (closed) return;
+        // Reconexão com backoff (máx. 8s).
+        attempts++;
+        const delay = Math.min(1000 * Math.pow(1.5, attempts), 8000);
+        timer = setTimeout(connect, delay);
+      };
     };
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+    connect();
 
-      if (data.type === 'init') {
-        setMyPlayerId(data.player_id);
-        return;
-      }
-
-      if (data.type) return;
-
-      setGameState(data);
+    return () => {
+      closed = true;
+      if (timer) clearTimeout(timer);
+      if (ws) ws.close();
     };
-
-    ws.onerror = (err) => console.error('WebSocket erro', err);
-    ws.onclose = () => console.log('🔴 WebSocket fechado');
-
-    return () => ws.close();
   }, [gameStarted]);
-
-  // Mantém o ref do nickname sincronizado
-  useEffect(() => {
-    nicknameRef.current = nickname;
-  }, [nickname]);
 
   // =======================
   // Partículas e shake (helpers)
@@ -516,280 +906,436 @@ export default function App() {
   }, []);
 
   // =======================
-  // Desenho Canvas
+  // Desenho Canvas (rAF, desacoplado do re-render do React)
   // =======================
   useEffect(() => {
-    if (!gameState) return;
+    if (!gameStarted) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
 
-    const now = performance.now();
-    const last = lastDrawTimeRef.current || now;
-    const dt = Math.min((now - last) / 1000, 0.05);
-    lastDrawTimeRef.current = now;
+    let rafId;
+    let last = performance.now();
 
-    // --- Sons e efeitos por transição de estado ---
-    if (prevRoundOverRef.current === true && gameState.round_over === false) {
-      sfx.roundStart();
-    }
-    prevRoundOverRef.current = gameState.round_over;
+    const draw = () => {
+      rafId = requestAnimationFrame(draw);
+      const gameState = gameStateRef.current;
+      if (!gameState) return;
 
-    const tiles = gameState.arena_tiles || {};
-    Object.values(tiles).forEach((tile) => {
-      const prev = prevTilesRef.current[tile.id];
-      if (prev && prev.falling === false && tile.is_falling) {
-        sfx.tileBreak();
-        addShake(7);
-        spawnParticles(
-          tile.x + tileSize / 2,
-          tile.y + tileSize / 2,
-          PALETTE.terracotta,
-          10,
-          160
-        );
-        spawnParticles(
-          tile.x + tileSize / 2,
-          tile.y + tileSize / 2,
-          PALETTE.soilCrumb,
-          8,
-          130
-        );
+      const arenaW = gameState.arena_width ?? cfg.arena_width;
+      const arenaH = gameState.arena_height ?? cfg.arena_height;
+      const tileSize = cfg.tile_size;
+      const playerRadius = cfg.player_radius;
+
+      const now = performance.now();
+      const dt = Math.min((now - last) / 1000, 0.05);
+      last = now;
+
+      // --- Sons e efeitos por transição de estado ---
+      if (prevRoundOverRef.current === true && gameState.round_over === false) {
+        sfx.roundStart();
       }
-      prevTilesRef.current[tile.id] = { falling: tile.is_falling, active: tile.is_active };
-    });
-    Object.keys(prevTilesRef.current).forEach((id) => {
-      if (!tiles[id]) delete prevTilesRef.current[id];
-    });
+      prevRoundOverRef.current = gameState.round_over;
 
-    // --- Shake ---
-    let shakeX = 0;
-    let shakeY = 0;
-    if (shakeRef.current > 0.1) {
-      shakeX = (Math.random() * 2 - 1) * shakeRef.current;
-      shakeY = (Math.random() * 2 - 1) * shakeRef.current;
-      shakeRef.current *= 0.85;
-    }
+      const tiles = gameState.arena_tiles || {};
+      Object.values(tiles).forEach((tile) => {
+        const prev = prevTilesRef.current[tile.id];
+        if (prev && prev.falling === false && tile.is_falling) {
+          sfx.tileBreak();
+          addShake(7);
+          spawnParticles(
+            tile.x + tileSize / 2,
+            tile.y + tileSize / 2,
+            PALETTE.terracotta,
+            10,
+            160
+          );
+          spawnParticles(
+            tile.x + tileSize / 2,
+            tile.y + tileSize / 2,
+            PALETTE.soilCrumb,
+            8,
+            130
+          );
+        }
+        prevTilesRef.current[tile.id] = { falling: tile.is_falling, active: tile.is_active };
+      });
+      Object.keys(prevTilesRef.current).forEach((id) => {
+        if (!tiles[id]) delete prevTilesRef.current[id];
+      });
 
-    ctx.save();
-    ctx.translate(shakeX, shakeY);
+      // --- Shake ---
+      let shakeX = 0;
+      let shakeY = 0;
+      if (shakeRef.current > 0.1) {
+        shakeX = (Math.random() * 2 - 1) * shakeRef.current;
+        shakeY = (Math.random() * 2 - 1) * shakeRef.current;
+        shakeRef.current *= 0.85;
+      }
 
-    // Fundo: céu sereno em gradiente linear
-    ctx.clearRect(0, 0, arenaW, arenaH);
-    const sky = ctx.createLinearGradient(0, 0, 0, arenaH);
-    sky.addColorStop(0, PALETTE.skyTop);
-    sky.addColorStop(0.5, PALETTE.skyMid);
-    sky.addColorStop(1, PALETTE.skyBottom);
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, arenaW, arenaH);
+      ctx.save();
+      ctx.translate(shakeX, shakeY);
 
-    // Nuvens suaves
-    drawCloud(ctx, 130, 70, 58);
-    drawCloud(ctx, 640, 120, 42);
-    drawCloud(ctx, 380, 40, 34);
+      // Fundo: céu sereno em gradiente linear
+      ctx.clearRect(0, 0, arenaW, arenaH);
+      const sky = ctx.createLinearGradient(0, 0, 0, arenaH);
+      sky.addColorStop(0, PALETTE.skyTop);
+      sky.addColorStop(0.5, PALETTE.skyMid);
+      sky.addColorStop(1, PALETTE.skyBottom);
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, arenaW, arenaH);
 
-    // Ilhas: blocos arredondados estilo flat com sombra, grama e árvores
-    const activeKeys = new Set();
-    Object.values(tiles).forEach((t) => {
-      if (t.is_active) activeKeys.add(t.id);
-    });
-    const hasTileAbove = (t) => {
-      const col = Math.round(t.x / tileSize);
-      const row = Math.round(t.y / tileSize);
-      return activeKeys.has(`tile_${row - 1}_${col}`);
+      // Nuvens suaves
+      drawCloud(ctx, 130, 70, 58);
+      drawCloud(ctx, 640, 120, 42);
+      drawCloud(ctx, 380, 40, 34);
+
+      // Ilhas: blocos arredondados estilo flat com sombra, grama e árvores
+      const activeKeys = new Set();
+      Object.values(tiles).forEach((t) => {
+        if (t.is_active) activeKeys.add(t.id);
+      });
+      const hasTileAbove = (t) => {
+        const col = Math.round(t.x / tileSize);
+        const row = Math.round(t.y / tileSize);
+        return activeKeys.has(`tile_${row - 1}_${col}`);
+      };
+
+      Object.values(tiles).forEach((tile) => {
+        if (!tile.is_active) return;
+
+        const x = tile.x;
+        const y = tile.y;
+        const s = tileSize;
+        const falling = tile.is_falling;
+        // Autotile: "top" = grama, "mid" = terra, "bottom" = ponta de pedra.
+        const kind = tile.kind || (hasTileAbove(tile) ? 'mid' : 'top');
+
+        // Sombra sólida deslocada (profundidade)
+        ctx.fillStyle = PALETTE.islandShadow;
+        roundRectPath(ctx, x + 5, y + 7, s, s, 12);
+        ctx.fill();
+
+        // Corpo da ilha (solo em gradiente suave)
+        const soilGrad = ctx.createLinearGradient(0, y, 0, y + s);
+        soilGrad.addColorStop(0, PALETTE.soilTop);
+        soilGrad.addColorStop(1, PALETTE.soilBottom);
+        ctx.fillStyle = falling ? PALETTE.falling : soilGrad;
+        roundRectPath(ctx, x, y, s, s, 12);
+        ctx.fill();
+
+        if (falling) {
+          // Rachaduras do bloco caindo
+          ctx.strokeStyle = PALETTE.fallingDark;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(x + s * 0.3, y + s * 0.2);
+          ctx.lineTo(x + s * 0.5, y + s * 0.5);
+          ctx.lineTo(x + s * 0.38, y + s * 0.8);
+          ctx.stroke();
+        }
+
+        // Faixa de grama apenas na superfície ("top")
+        if (kind === 'top') {
+          ctx.fillStyle = PALETTE.grassTop;
+          roundRectPath(ctx, x, y, s, 20, 10);
+          ctx.fill();
+          ctx.fillStyle = PALETTE.grassEdge;
+          roundRectPath(ctx, x, y + 14, s, 8, 4);
+          ctx.fill();
+        }
+
+        // Ponta de pedra na base da ilha ("bottom")
+        if (kind === 'bottom') {
+          ctx.fillStyle = PALETTE.soilBorder;
+          ctx.beginPath();
+          ctx.moveTo(x + s * 0.2, y + s * 0.6);
+          ctx.lineTo(x + s * 0.5, y + s * 0.92);
+          ctx.lineTo(x + s * 0.8, y + s * 0.6);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Contorno marrom suave
+        ctx.strokeStyle = PALETTE.soilBorder;
+        ctx.lineWidth = 2;
+        roundRectPath(ctx, x, y, s, s, 12);
+        ctx.stroke();
+
+        // Árvore em blocos de superfície (autotile "top")
+        if (!falling && kind === 'top' && tileHash(x, y) % 3 === 0) {
+          drawTree(ctx, x, y, s);
+        }
+      });
+
+      // Partículas
+      const parts = particlesRef.current;
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += 220 * dt;
+        p.life -= p.decay * dt;
+        if (p.life <= 0) parts.splice(i, 1);
+      }
+      parts.forEach((p) => {
+        ctx.globalAlpha = Math.max(p.life, 0);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3 * p.life, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+
+      // Power-ups: desenha os drops ativos e detecta pickup/despawn
+      const powerUps = gameState.power_ups || {};
+      const currentPUIds = new Set(Object.keys(powerUps));
+      Object.values(powerUps).forEach((pu) => {
+        drawPowerUpDrop(ctx, pu, now);
+      });
+
+      // Detecção de pickup do próprio jogador: buff acabou de ativar e um drop
+      // foi removido nesta frame próximo a ele (distingue de despawn).
+      const myPU = myPlayerId ? gameState.players?.[myPlayerId] : null;
+      const hadBuff = prevBuffRef.current;
+      const hasBuff = !!(myPU && myPU.buff && myPU.buff !== '');
+
+      if (myPU && !myPU.is_dead && !hadBuff && hasBuff) {
+        const myBuffType = myPU.buff;
+        let bestDrop = null;
+        let bestDist = Infinity;
+        Object.entries(powerUpPrevRef.current).forEach(([id, prev]) => {
+          if (!currentPUIds.has(id) && prev.type === myBuffType) {
+            const d = Math.hypot(prev.x - myPU.x, prev.y - myPU.y);
+            if (d < bestDist) {
+              bestDist = d;
+              bestDrop = prev;
+            }
+          }
+        });
+        if (bestDrop) {
+          sfx.pickup();
+          spawnParticles(bestDrop.x, bestDrop.y, bestDrop.glow, 14, 170);
+        }
+      }
+
+      // Fim do buff do próprio jogador (som de aviso).
+      if (myPU && !myPU.is_dead && hadBuff && !hasBuff) {
+        sfx.buffEnd();
+      }
+      prevBuffRef.current = hasBuff ? myPU?.buff : null;
+      // Atualiza o snapshot das posições dos drops.
+      const puSnap = {};
+      Object.values(powerUps).forEach((pu) => {
+        puSnap[pu.id] = {
+          x: pu.x,
+          y: pu.y,
+          type: pu.type,
+          glow:
+            pu.type === 'red_mushroom'
+              ? PALETTE.redMushTop
+              : pu.type === 'purple_mushroom'
+                ? PALETTE.purpleMushTop
+                : PALETTE.crystalMid,
+        };
+      });
+      powerUpPrevRef.current = puSnap;
+
+      // Jogadores
+      const players = Object.values(gameState.players || {});
+      const seenIds = new Set();
+
+      players.forEach((player) => {
+        seenIds.add(player.id);
+
+        if (!animsRef.current[player.id]) {
+          animsRef.current[player.id] = {
+            trail: [],
+            rotation: 0,
+            prevVy: 0,
+            prevOnGround: false,
+            prevDead: false,
+            prevJumpsUsed: 0,
+            landSquash: 0,
+          };
+        }
+        const anim = animsRef.current[player.id];
+
+        // Sons para o próprio jogador
+        if (player.id === myPlayerId) {
+          const justLanded =
+            player.on_ground && !anim.prevOnGround && anim.prevVy > 8;
+          const justDied = player.is_dead && !anim.prevDead;
+          const justDoubleJumped =
+            !player.on_ground && player.jumps_used === 1 && anim.prevJumpsUsed === 0;
+          const lostLife =
+            prevLivesRef.current !== null && player.lives < prevLivesRef.current;
+
+          if (justLanded) sfx.land();
+          if (justDied) sfx.death();
+          if (justDoubleJumped) {
+            sfx.doubleJump();
+            spawnParticles(player.x, player.y, PALETTE.gold, 10, 130);
+          }
+          if (lostLife) {
+            sfx.respawn();
+            spawnParticles(player.x, player.y, PALETTE.amber, 14, 150);
+            addShake(6);
+          }
+          prevLivesRef.current = player.lives;
+        }
+
+        anim.prevDead = player.is_dead;
+        anim.prevJumpsUsed = player.jumps_used;
+
+        // Raio exibido e buff ativo (Tanque dobra o raio visual).
+        const buff = player.buff || null;
+        const dispRadius = buff === 'red_mushroom' ? playerRadius * 2 : playerRadius;
+
+        if (player.is_dead) {
+          drawGhost(ctx, player, dispRadius);
+        } else {
+          drawPlayerBall(ctx, player, anim, now, dt, dispRadius, buff);
+          if (buff) drawBuffIcon(ctx, player.x, player.y, buff, now);
+        }
+
+        // Seta branca: aponta para o próprio jogador quando ele sai da área
+        // visível. No modo mobile (cover) a área visível é menor que a arena
+        // (laterais cortadas), então os limites são calculados a partir do
+        // tamanho real do canvas na tela.
+        if (player.id === myPlayerId && !player.is_dead) {
+          let vMinX = 0;
+          let vMaxX = arenaW;
+          let vMinY = 0;
+          let vMaxY = arenaH;
+          if (isTouch) {
+            const el = canvasRef.current;
+            if (el) {
+              const cw = el.clientWidth || arenaW;
+              const ch = el.clientHeight || arenaH;
+              const scale = Math.max(cw / arenaW, ch / arenaH);
+              if (scale > 0) {
+                const cropX = (arenaW * scale - cw) / (2 * scale);
+                const cropY = (arenaH * scale - ch) / (2 * scale);
+                vMinX = cropX;
+                vMaxX = arenaW - cropX;
+                vMinY = cropY;
+                vMaxY = arenaH - cropY;
+              }
+            }
+          }
+
+          if (
+            player.x < vMinX ||
+            player.x > vMaxX ||
+            player.y < vMinY ||
+            player.y > vMaxY
+          ) {
+            const pad = 26;
+            const clampX = Math.max(vMinX + pad, Math.min(vMaxX - pad, player.x));
+            const clampY = Math.max(vMinY + pad, Math.min(vMaxY - pad, player.y));
+            const angle = Math.atan2(player.y - clampY, player.x - clampX);
+            const offset = pad - 12;
+            const tipX = clampX + Math.cos(angle) * offset;
+            const tipY = clampY + Math.sin(angle) * offset;
+            const size = 12 + Math.sin(now / 160) * 2;
+
+            ctx.save();
+            ctx.translate(tipX, tipY);
+            ctx.rotate(angle);
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 10;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.moveTo(size, 0);
+            ctx.lineTo(-size * 0.6, -size * 0.7);
+            ctx.lineTo(-size * 0.6, size * 0.7);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+          }
+        }
+
+        // Barra de cooldown do Dash (apenas para o próprio jogador)
+        if (player.id === myPlayerId && !player.is_dead) {
+          const cd = player.dash_cd || 0;
+          const maxCd = cfg.dash_cooldown || 1.5;
+          const barW = dispRadius * 2;
+          const barY = player.y + dispRadius + 8;
+          ctx.fillStyle = 'rgba(90,70,40,0.25)';
+          ctx.fillRect(player.x - dispRadius, barY, barW, 5);
+          ctx.fillStyle = cd > 0 ? PALETTE.amber : PALETTE.goldStrong;
+          ctx.fillRect(
+            player.x - dispRadius,
+            barY,
+            barW * Math.max(0, 1 - cd / maxCd),
+            5
+          );
+        }
+
+        // Barra do tempo restante do buff (apenas para o próprio jogador)
+        if (player.id === myPlayerId && buff && !player.is_dead) {
+          const remaining = Math.max(0, player.buff_remaining || 0);
+          const duration =
+            buff === 'red_mushroom'
+              ? cfg.red_duration || 8
+              : buff === 'purple_mushroom'
+                ? cfg.purple_duration || 6
+                : cfg.blue_duration || 8;
+          const barW = dispRadius * 2;
+          const barY = player.y + dispRadius + 15;
+          const frac = Math.max(0, Math.min(1, remaining / duration));
+          ctx.fillStyle = 'rgba(90,70,40,0.25)';
+          ctx.fillRect(player.x - dispRadius, barY, barW, 5);
+          ctx.fillStyle =
+            buff === 'red_mushroom'
+              ? PALETTE.redMushDark
+              : buff === 'purple_mushroom'
+                ? PALETTE.purpleMushDark
+                : PALETTE.crystalMid;
+          ctx.fillRect(player.x - dispRadius, barY, barW * frac, 5);
+        }
+      });
+
+      // Juice de impacto: detecta pares vivos cruzando a distância mínima
+      const alivePlayers = players.filter((p) => !p.is_dead);
+      for (let i = 0; i < alivePlayers.length; i++) {
+        for (let j = i + 1; j < alivePlayers.length; j++) {
+          const a = alivePlayers[i];
+          const b = alivePlayers[j];
+          const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
+          const dist = Math.hypot(a.x - b.x, a.y - b.y);
+          const prev = impactsRef.current[key] ?? Infinity;
+          const rA = (a.buff === 'red_mushroom' ? playerRadius * 2 : playerRadius);
+          const rB = (b.buff === 'red_mushroom' ? playerRadius * 2 : playerRadius);
+          const hitDist = rA + rB + 2;
+          if (dist < hitDist && prev >= hitDist) {
+            sfx.hit();
+            addShake(5);
+            spawnParticles((a.x + b.x) / 2, (a.y + b.y) / 2, PALETTE.terracotta, 10, 200);
+            spawnParticles((a.x + b.x) / 2, (a.y + b.y) / 2, PALETTE.gold, 8, 160);
+          }
+          impactsRef.current[key] = dist;
+        }
+      }
+      Object.keys(impactsRef.current).forEach((key) => {
+        const [ida, idb] = key.split('|');
+        const found = players.some((p) => p.id === ida) && players.some((p) => p.id === idb);
+        if (!found) delete impactsRef.current[key];
+      });
+
+      // Limpa animações de jogadores que saíram
+      Object.keys(animsRef.current).forEach((id) => {
+        if (!seenIds.has(id)) delete animsRef.current[id];
+      });
+
+      ctx.restore();
     };
 
-    Object.values(tiles).forEach((tile) => {
-      if (!tile.is_active) return;
-
-      const x = tile.x;
-      const y = tile.y;
-      const s = tileSize;
-      const falling = tile.is_falling;
-      // Autotile: "top" = grama, "mid" = terra, "bottom" = ponta de pedra.
-      const kind = tile.kind || (hasTileAbove(tile) ? 'mid' : 'top');
-
-      // Sombra sólida deslocada (profundidade)
-      ctx.fillStyle = PALETTE.islandShadow;
-      roundRectPath(ctx, x + 5, y + 7, s, s, 12);
-      ctx.fill();
-
-      // Corpo da ilha (solo em gradiente suave)
-      const soilGrad = ctx.createLinearGradient(0, y, 0, y + s);
-      soilGrad.addColorStop(0, PALETTE.soilTop);
-      soilGrad.addColorStop(1, PALETTE.soilBottom);
-      ctx.fillStyle = falling ? PALETTE.falling : soilGrad;
-      roundRectPath(ctx, x, y, s, s, 12);
-      ctx.fill();
-
-      if (falling) {
-        // Rachaduras do bloco caindo
-        ctx.strokeStyle = PALETTE.fallingDark;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(x + s * 0.3, y + s * 0.2);
-        ctx.lineTo(x + s * 0.5, y + s * 0.5);
-        ctx.lineTo(x + s * 0.38, y + s * 0.8);
-        ctx.stroke();
-      }
-
-      // Faixa de grama apenas na superfície ("top")
-      if (kind === 'top') {
-        ctx.fillStyle = PALETTE.grassTop;
-        roundRectPath(ctx, x, y, s, 20, 10);
-        ctx.fill();
-        ctx.fillStyle = PALETTE.grassEdge;
-        roundRectPath(ctx, x, y + 14, s, 8, 4);
-        ctx.fill();
-      }
-
-      // Ponta de pedra na base da ilha ("bottom")
-      if (kind === 'bottom') {
-        ctx.fillStyle = PALETTE.soilBorder;
-        ctx.beginPath();
-        ctx.moveTo(x + s * 0.2, y + s * 0.6);
-        ctx.lineTo(x + s * 0.5, y + s * 0.92);
-        ctx.lineTo(x + s * 0.8, y + s * 0.6);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // Contorno marrom suave
-      ctx.strokeStyle = PALETTE.soilBorder;
-      ctx.lineWidth = 2;
-      roundRectPath(ctx, x, y, s, s, 12);
-      ctx.stroke();
-
-      // Árvore em blocos de superfície (autotile "top")
-      if (!falling && kind === 'top' && tileHash(x, y) % 3 === 0) {
-        drawTree(ctx, x, y, s);
-      }
-    });
-
-    // Partículas
-    const parts = particlesRef.current;
-    for (let i = parts.length - 1; i >= 0; i--) {
-      const p = parts[i];
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.vy += 220 * dt;
-      p.life -= p.decay * dt;
-      if (p.life <= 0) parts.splice(i, 1);
-    }
-    parts.forEach((p) => {
-      ctx.globalAlpha = Math.max(p.life, 0);
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 3 * p.life, 0, Math.PI * 2);
-      ctx.fill();
-    });
-    ctx.globalAlpha = 1;
-
-    // Jogadores
-    const players = Object.values(gameState.players || {});
-    const seenIds = new Set();
-
-    players.forEach((player) => {
-      seenIds.add(player.id);
-
-      if (!animsRef.current[player.id]) {
-        animsRef.current[player.id] = {
-          trail: [],
-          rotation: 0,
-          prevVy: 0,
-          prevOnGround: false,
-          prevDead: false,
-          prevJumpsUsed: 0,
-          landSquash: 0,
-        };
-      }
-      const anim = animsRef.current[player.id];
-
-      // Sons para o próprio jogador
-      if (player.id === myPlayerId) {
-        const justLanded =
-          player.on_ground && !anim.prevOnGround && anim.prevVy > 8;
-        const justDied = player.is_dead && !anim.prevDead;
-        const justDoubleJumped =
-          !player.on_ground && player.jumps_used === 1 && anim.prevJumpsUsed === 0;
-        const lostLife =
-          prevLivesRef.current !== null && player.lives < prevLivesRef.current;
-
-        if (justLanded) sfx.land();
-        if (justDied) sfx.death();
-        if (justDoubleJumped) {
-          sfx.doubleJump();
-          spawnParticles(player.x, player.y, PALETTE.gold, 10, 130);
-        }
-        if (lostLife) {
-          sfx.respawn();
-          spawnParticles(player.x, player.y, PALETTE.amber, 14, 150);
-          addShake(6);
-        }
-        prevLivesRef.current = player.lives;
-      }
-
-      anim.prevDead = player.is_dead;
-      anim.prevJumpsUsed = player.jumps_used;
-
-      if (player.is_dead) {
-        drawGhost(ctx, player, playerRadius);
-      } else {
-        drawPlayerBall(ctx, player, anim, now, dt, playerRadius);
-      }
-
-      // Barra de cooldown do Dash (apenas para o próprio jogador)
-      if (player.id === myPlayerId && !player.is_dead) {
-        const cd = player.dash_cd || 0;
-        const maxCd = cfg.dash_cooldown || 1.5;
-        const barW = playerRadius * 2;
-        const barY = player.y + playerRadius + 8;
-        ctx.fillStyle = 'rgba(90,70,40,0.25)';
-        ctx.fillRect(player.x - playerRadius, barY, barW, 5);
-        ctx.fillStyle = cd > 0 ? PALETTE.amber : PALETTE.goldStrong;
-        ctx.fillRect(
-          player.x - playerRadius,
-          barY,
-          barW * Math.max(0, 1 - cd / maxCd),
-          5
-        );
-      }
-    });
-
-    // Juice de impacto: detecta pares vivos cruzando a distância mínima
-    const alivePlayers = players.filter((p) => !p.is_dead);
-    for (let i = 0; i < alivePlayers.length; i++) {
-      for (let j = i + 1; j < alivePlayers.length; j++) {
-        const a = alivePlayers[i];
-        const b = alivePlayers[j];
-        const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
-        const dist = Math.hypot(a.x - b.x, a.y - b.y);
-        const prev = impactsRef.current[key] ?? Infinity;
-        const hitDist = playerRadius * 2 + 2;
-        if (dist < hitDist && prev >= hitDist) {
-          sfx.hit();
-          addShake(5);
-          spawnParticles((a.x + b.x) / 2, (a.y + b.y) / 2, PALETTE.terracotta, 10, 200);
-          spawnParticles((a.x + b.x) / 2, (a.y + b.y) / 2, PALETTE.gold, 8, 160);
-        }
-        impactsRef.current[key] = dist;
-      }
-    }
-    Object.keys(impactsRef.current).forEach((key) => {
-      const [ida, idb] = key.split('|');
-      const found = players.some((p) => p.id === ida) && players.some((p) => p.id === idb);
-      if (!found) delete impactsRef.current[key];
-    });
-
-    // Limpa animações de jogadores que saíram
-    Object.keys(animsRef.current).forEach((id) => {
-      if (!seenIds.has(id)) delete animsRef.current[id];
-    });
-
-    ctx.restore();
-  }, [gameState, cfg, myPlayerId, spawnParticles, addShake, arenaW, arenaH, tileSize, playerRadius]);
+    rafId = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(rafId);
+  }, [gameStarted, cfg, myPlayerId, isTouch, spawnParticles, addShake]);
 
   // =======================
   // Scores
@@ -799,7 +1345,8 @@ export default function App() {
       try {
         const res = await fetch(SCORES_API_URL);
         const data = await res.json();
-        setScores(data);
+        // Garante array (o backend pode responder [] ou um objeto de erro).
+        setScores(Array.isArray(data) ? data : []);
       } catch (err) {
         console.error('Erro ao buscar scores', err);
       }
@@ -810,25 +1357,13 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const myPlayer =
-    gameState?.players?.[myPlayerId] ?? null;
-
   // Recorde pessoal
   useEffect(() => {
-    if (myPlayer && !myPlayer.is_dead) {
-      setBestScore((b) => Math.max(b, myPlayer.score));
+    const my = ui.myPlayer;
+    if (my && !my.is_dead) {
+      setBestScore((b) => Math.max(b, my.score));
     }
-  }, [myPlayer]);
-
-  const othersAlive =
-    gameState && gameState.players
-      ? Object.values(gameState.players).some((p) => !p.is_dead)
-      : false;
-
-  const aliveCount =
-    gameState && gameState.players
-      ? Object.values(gameState.players).filter((p) => !p.is_dead).length
-      : 0;
+  }, [ui.myPlayer]);
 
   const overlaySx = {
     position: 'absolute',
@@ -843,40 +1378,81 @@ export default function App() {
     p: 3,
   };
 
+  // Botão de controle de toque (mobile): alvo grande, sem zoom/scroll.
+  const touchBtnSx = {
+    pointerEvents: 'auto',
+    minWidth: 72,
+    minHeight: 72,
+    fontSize: '1.6rem',
+    borderRadius: 3,
+    touchAction: 'none',
+    userSelect: 'none',
+    boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+  };
+
   // =======================
   // UI
   // =======================
   return (
     <Box
       sx={{
-        minHeight: '100vh',
+        height: '100dvh',
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
         background:
           'linear-gradient(180deg, #fdf0d8 0%, #f6e3c5 45%, #efc58b 100%)',
       }}
     >
-      <Container maxWidth="xl" sx={{ py: 6 }}>
+        <Container
+          maxWidth={false}
+          disableGutters
+          sx={{
+            maxWidth: '1680px',
+            mx: 'auto',
+            px: { xs: isTouch && gameStarted ? 0 : 1.5, md: 2 },
+            py: { xs: isTouch && gameStarted ? 0 : 2, md: 2 },
+            display: 'flex',
+            flexDirection: 'column',
+            flexGrow: 1,
+            minHeight: 0,
+          }}
+        >
         <Typography
-          variant="h2"
+          variant="h3"
           align="center"
           sx={{
-            mb: 6,
+            mb: 2,
             fontWeight: 800,
             color: PALETTE.textBrown,
             background: 'linear-gradient(90deg, #d99a2b, #c96f4a)',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
+            display: { xs: gameStarted ? 'none' : 'block', md: 'block' },
           }}
         >
           SURVIVE THE DESTRUCTION
         </Typography>
 
-        <Grid container spacing={4}>
-          <Grid item xs={12} lg={8} display="flex" justifyContent="center">
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'row',
+            gap: 3,
+            alignItems: 'stretch',
+            flexGrow: 1,
+            minHeight: 0,
+          }}
+        >
+          <Box sx={{ flex: '1 1 auto', minWidth: 0, display: 'flex', justifyContent: 'center' }}>
             <Paper
               sx={{
                 position: 'relative',
                 width: '100%',
-                maxWidth: arenaW,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
                 borderRadius: 4,
                 overflow: 'hidden',
                 border: `2px solid ${PALETTE.borderSoft}`,
@@ -886,9 +1462,25 @@ export default function App() {
             >
               <canvas
                 ref={canvasRef}
+                className="game-canvas"
                 width={arenaW}
                 height={arenaH}
-                style={{ display: 'block', width: '100%', height: 'auto' }}
+                style={
+                  isTouch && gameStarted
+                    ? {
+                        display: 'block',
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                      }
+                    : {
+                        display: 'block',
+                        width: 'auto',
+                        height: 'auto',
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                      }
+                }
               />
 
               {!gameStarted && (
@@ -914,11 +1506,13 @@ export default function App() {
                   <Typography variant="body2" color={PALETTE.textSoft}>
                     Use A/D ou ←/→ para mover, W ou Espaço para pular (×2 no ar).
                     Shift para Dash (empurra oponentes). Enter também inicia.
+                    Pegue os drops: 🍄 vermelho = Tanque, 🍄 roxo = Velocista,
+                    💎 azul = Planar (um buff por vez).
                   </Typography>
                 </Box>
               )}
 
-              {gameStarted && gameState && gameState.round_over && (
+              {gameStarted && ui.round_over && !deathPrompt && (
                 <Box sx={overlaySx}>
                   <Typography variant="h4" color={PALETTE.fallingDark} fontWeight={800}>
                     NOVA RODADA
@@ -929,115 +1523,370 @@ export default function App() {
                     fontWeight={900}
                     sx={{ fontSize: '6rem' }}
                   >
-                    {gameState.countdown}
+                    {ui.countdown}
                   </Typography>
                 </Box>
               )}
 
-              {gameStarted &&
-                gameState &&
-                !gameState.round_over &&
-                myPlayer &&
-                myPlayer.is_dead && (
-                  <Box sx={overlaySx}>
-                    <Typography variant="h4" color={PALETTE.fallingDark} fontWeight={800}>
-                      VOCÊ CAIU!
+              {gameStarted && deathPrompt && (
+                <Box
+                  sx={{
+                    ...overlaySx,
+                    overflowY: 'auto',
+                    justifyContent: 'flex-start',
+                    gap: 1,
+                  }}
+                >
+                  <Typography
+                    variant="h4"
+                    color={PALETTE.fallingDark}
+                    fontWeight={800}
+                  >
+                    VOCÊ CAIU!
+                  </Typography>
+
+                  {deathInfo && deathInfo.pos > 0 && (
+                    <Typography
+                      variant="h6"
+                      color={PALETTE.goldStrong}
+                      fontWeight={800}
+                    >
+                      Você ficou em {deathInfo.pos}º de{' '}
+                      {deathInfo.ranking.length}{' '}
+                      {deathInfo.ranking.length === 1 ? 'jogador' : 'jogadores'}
                     </Typography>
-                    <Typography variant="body2" color={PALETTE.textSoft}>
-                      {othersAlive
-                        ? 'Suas vidas acabaram. Observe os outros ou tente novamente.'
-                        : 'A rodada terminou. Aguarde a nova rodada...'}
-                    </Typography>
+                  )}
+
+                  <Typography variant="body2" color={PALETTE.textSoft}>
+                    Tempo sobrevivido: {deathInfo?.score ?? 0}s
+                  </Typography>
+                  <Typography variant="body2" color={PALETTE.textSoft}>
+                    Suas vidas acabaram. Continue na próxima rodada ou entre
+                    em outra partida.
+                  </Typography>
+
+                  <Typography
+                    variant="body1"
+                    color={PALETTE.textBrown}
+                    fontWeight={700}
+                    sx={{ mt: 1 }}
+                  >
+                    Quer entrar em outra partida?
+                  </Typography>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 1.5,
+                      width: '100%',
+                      mt: 0.5,
+                    }}
+                  >
                     <Button
                       variant="contained"
                       size="large"
-                      sx={{ bgcolor: PALETTE.olive, '&:hover': { bgcolor: '#5f6d30' } }}
-                      onClick={sendRestart}
+                      sx={{
+                        flex: 1,
+                        minWidth: 180,
+                        bgcolor: PALETTE.olive,
+                        '&:hover': { bgcolor: '#5f6d30' },
+                      }}
+                      onClick={() => {
+                        sendRestart();
+                        setDeathPrompt(false);
+                      }}
+                      disabled={!ui.aliveAny}
                     >
                       TENTAR NOVAMENTE
                     </Button>
+                    <Button
+                      variant="outlined"
+                      size="large"
+                      sx={{
+                        flex: 1,
+                        minWidth: 180,
+                        color: PALETTE.terracottaStrong,
+                        borderColor: PALETTE.terracottaStrong,
+                        '&:hover': {
+                          borderColor: PALETTE.terracottaStrong,
+                          bgcolor: 'rgba(201,111,74,0.08)',
+                        },
+                      }}
+                      onClick={startNewMatch}
+                    >
+                      OUTRA PARTIDA
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      size="large"
+                      sx={{
+                        flex: 1,
+                        minWidth: 180,
+                        color: PALETTE.textSoft,
+                        borderColor: PALETTE.textSoft,
+                        '&:hover': {
+                          borderColor: PALETTE.textSoft,
+                          bgcolor: 'rgba(120,105,80,0.08)',
+                        },
+                      }}
+                      onClick={() => setDeathPrompt(false)}
+                    >
+                      CONTINUAR
+                    </Button>
+                  </Box>
+
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        width: '100%',
+                        maxWidth: 480,
+                        bgcolor: 'rgba(240,224,196,0.55)',
+                        borderRadius: 3,
+                        p: 1.5,
+                        mt: 1,
+                      }}
+                    >
+                      <Typography
+                        variant="subtitle2"
+                        fontWeight={700}
+                        color={PALETTE.textBrown}
+                      >
+                        🏁 Ranking desta partida
+                      </Typography>
+                      <List dense>
+                        {(deathInfo?.ranking ?? matchRanking).slice(0, 10).map((p, i) => (
+                          <ListItem
+                            key={p.id}
+                            sx={{
+                              bgcolor:
+                                p.id === ui.myPlayer.id
+                                  ? 'rgba(217,154,43,0.28)'
+                                  : 'transparent',
+                              borderRadius: 2,
+                            }}
+                          >
+                            <Chip
+                              label={i + 1}
+                              size="small"
+                              sx={{ mr: 1 }}
+                              color={i < 3 ? 'warning' : 'default'}
+                            />
+                            <ListItemText
+                              primary={
+                                p.name || `Player_${p.id.slice(-4)}`
+                              }
+                              primaryTypographyProps={{
+                                fontWeight:
+                                  p.id === ui.myPlayer.id ? 800 : 400,
+                              }}
+                            />
+                            <Typography
+                              color={PALETTE.goldStrong}
+                              fontWeight="bold"
+                            >
+                              {p.score}s
+                            </Typography>
+                          </ListItem>
+                        ))}
+                      </List>
+                    </Paper>
+
+                    {scores.length > 0 && (
+                      <Box
+                        sx={{
+                          width: '100%',
+                          maxWidth: 480,
+                          mt: 1,
+                        }}
+                      >
+                        <Leaderboard scores={scores} highlightName={nickname} />
+                      </Box>
+                    )}
                   </Box>
                 )}
 
               {isTouch && gameStarted && (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    inset: 0,
-                    pointerEvents: 'none',
-                    display: 'flex',
-                    alignItems: 'flex-end',
-                    justifyContent: 'space-between',
-                    p: 2,
-                  }}
-                >
+                <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                  {/* HUD compacto mobile */}
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      display: 'flex',
+                      gap: 1,
+                      p: 1.5,
+                      maxWidth: '70%',
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        bgcolor: 'rgba(90,70,40,0.55)',
+                        color: '#fff',
+                        borderRadius: 2,
+                        px: 1.25,
+                        py: 1,
+                        fontSize: '0.85rem',
+                        lineHeight: 1.5,
+                        fontWeight: 700,
+                      }}
+                    >
+                      <Box component="div">
+                        ⏱ {ui.myPlayer ? `${ui.myPlayer.score}s` : '0s'}
+                      </Box>
+                      <Box component="div">
+                        {'❤'.repeat(ui.myPlayer?.lives ?? cfg.max_lives ?? 3) ||
+                          '0'}
+                      </Box>
+                      <Box component="div">
+                        Buff:{' '}
+                        {ui.myPlayer?.buff
+                          ? ui.myPlayer.buff === 'red_mushroom'
+                            ? '🟥'
+                            : ui.myPlayer.buff === 'purple_mushroom'
+                              ? '🟪'
+                              : '🟦'
+                          : '—'}
+                      </Box>
+                      <Box component="div">Vivos: {ui.aliveCount}</Box>
+                    </Box>
+                    {matchRanking.length > 0 && (
+                      <Box
+                        sx={{
+                          bgcolor: 'rgba(90,70,40,0.55)',
+                          color: '#fff',
+                          borderRadius: 2,
+                          px: 1.25,
+                          py: 1,
+                          fontSize: '0.75rem',
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {matchRanking.slice(0, 3).map((p, i) => (
+                          <Box
+                            component="div"
+                            key={p.id}
+                            sx={{
+                              fontWeight:
+                                p.id === ui.myPlayer?.id ? 800 : 400,
+                            }}
+                          >
+                            {i + 1}º {p.name || `Player_${p.id.slice(-4)}`}{' '}
+                            {p.score}s
+                          </Box>
+                        ))}
+                      </Box>
+                    )}
+                  </Box>
+
+                  {/* Sair da tela cheia */}
                   <Button
                     variant="contained"
+                    size="small"
                     sx={{
+                      position: 'absolute',
+                      top: 12,
+                      right: 12,
                       pointerEvents: 'auto',
-                      minWidth: 64,
-                      fontSize: '1.4rem',
-                      bgcolor: PALETTE.olive,
-                      '&:hover': { bgcolor: '#5f6d30' },
+                      minWidth: 44,
+                      minHeight: 44,
+                      fontSize: '1.1rem',
+                      bgcolor: 'rgba(90,70,40,0.55)',
+                      '&:hover': { bgcolor: 'rgba(90,70,40,0.8)' },
                     }}
-                    onPointerDown={touchPress('left')}
-                    onPointerUp={touchRelease('left')}
-                    onPointerLeave={touchRelease('left')}
+                    onClick={exitFullscreen}
                   >
-                    ◀
+                    ⛶
                   </Button>
-                  <Button
-                    variant="contained"
+
+                  {/* Controles: ◀ ▶ à esquerda, ⬆ ⚡ à direita */}
+                  <Box
                     sx={{
-                      pointerEvents: 'auto',
-                      minWidth: 64,
-                      fontSize: '1.4rem',
-                      bgcolor: PALETTE.olive,
-                      '&:hover': { bgcolor: '#5f6d30' },
+                      position: 'absolute',
+                      bottom: 14,
+                      left: 12,
+                      right: 12,
+                      display: 'flex',
+                      alignItems: 'flex-end',
+                      justifyContent: 'space-between',
                     }}
-                    onPointerDown={touchPress('right')}
-                    onPointerUp={touchRelease('right')}
-                    onPointerLeave={touchRelease('right')}
                   >
-                    ▶
-                  </Button>
-                  <Button
-                    variant="contained"
-                    sx={{
-                      pointerEvents: 'auto',
-                      minWidth: 64,
-                      fontSize: '1.4rem',
-                      bgcolor: PALETTE.goldStrong,
-                      '&:hover': { bgcolor: '#c2851e' },
-                    }}
-                    onPointerDown={touchPress('jump')}
-                    onPointerUp={touchRelease('jump')}
-                    onPointerLeave={touchRelease('jump')}
-                  >
-                    ⬆
-                  </Button>
-                  <Button
-                    variant="contained"
-                    sx={{
-                      pointerEvents: 'auto',
-                      minWidth: 64,
-                      fontSize: '1.4rem',
-                      bgcolor: PALETTE.terracottaStrong,
-                      '&:hover': { bgcolor: '#ab5a3c' },
-                    }}
-                    onPointerDown={touchPress('dash')}
-                    onPointerUp={touchRelease('dash')}
-                    onPointerLeave={touchRelease('dash')}
-                  >
-                    ⚡
-                  </Button>
+                    <Box sx={{ display: 'flex', gap: 1.5 }}>
+                      <Button
+                        variant="contained"
+                        sx={{
+                          ...touchBtnSx,
+                          bgcolor: PALETTE.olive,
+                          '&:hover': { bgcolor: '#5f6d30' },
+                        }}
+                        onPointerDown={touchPress('left')}
+                        onPointerUp={touchRelease('left')}
+                        onPointerLeave={touchRelease('left')}
+                      >
+                        ◀
+                      </Button>
+                      <Button
+                        variant="contained"
+                        sx={{
+                          ...touchBtnSx,
+                          bgcolor: PALETTE.olive,
+                          '&:hover': { bgcolor: '#5f6d30' },
+                        }}
+                        onPointerDown={touchPress('right')}
+                        onPointerUp={touchRelease('right')}
+                        onPointerLeave={touchRelease('right')}
+                      >
+                        ▶
+                      </Button>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1.5 }}>
+                      <Button
+                        variant="contained"
+                        sx={{
+                          ...touchBtnSx,
+                          bgcolor: PALETTE.goldStrong,
+                          '&:hover': { bgcolor: '#c2851e' },
+                        }}
+                        onPointerDown={touchPress('jump')}
+                        onPointerUp={touchRelease('jump')}
+                        onPointerLeave={touchRelease('jump')}
+                      >
+                        ⬆
+                      </Button>
+                      <Button
+                        variant="contained"
+                        sx={{
+                          ...touchBtnSx,
+                          bgcolor: PALETTE.terracottaStrong,
+                          '&:hover': { bgcolor: '#ab5a3c' },
+                        }}
+                        onPointerDown={touchPress('dash')}
+                        onPointerUp={touchRelease('dash')}
+                        onPointerLeave={touchRelease('dash')}
+                      >
+                        ⚡
+                      </Button>
+                    </Box>
+                  </Box>
                 </Box>
               )}
             </Paper>
-          </Grid>
+          </Box>
 
-          <Grid item xs={12} lg={4}>
-            <Box display="flex" flexDirection="column" gap={3}>
+          <Box
+            sx={{
+              display: { xs: 'none', md: 'block' },
+              flex: '0 0 300px',
+              minWidth: 0,
+              height: '100%',
+            }}
+          >
+            <Box
+              display="flex"
+              flexDirection="column"
+              gap={3}
+              sx={{ height: '100%', overflowY: 'auto' }}
+            >
               <Leaderboard scores={scores} />
 
               <Paper
@@ -1054,25 +1903,41 @@ export default function App() {
                 </Typography>
                 <Typography>Nome: {nickname}</Typography>
                 <Typography>
-                  Tempo: {myPlayer ? `${myPlayer.score}s` : '0s'}
+                  Tempo: {ui.myPlayer ? `${ui.myPlayer.score}s` : '0s'}
                 </Typography>
                 <Typography color={PALETTE.goldStrong} fontWeight="bold">
                   Recorde: {bestScore}s
                 </Typography>
-                <Typography>Rodada: {gameState?.round ?? 1}</Typography>
-                <Typography>Vivos: {aliveCount}</Typography>
+                <Typography>Rodada: {ui.round}</Typography>
+                <Typography>Vivos: {ui.aliveCount}</Typography>
+                <Typography>
+                  Próximo drop:{' '}
+                  {ui.myPlayer && !ui.myPlayer.is_dead
+                    ? `${ui.drop_countdown.toFixed(1)}s`
+                    : '—'}
+                </Typography>
+                <Typography>
+                  Buff:{' '}
+                  {ui.myPlayer?.buff
+                    ? ui.myPlayer.buff === 'red_mushroom'
+                      ? '🟥 Tanque'
+                      : ui.myPlayer.buff === 'purple_mushroom'
+                        ? '🟪 Velocista'
+                        : '🟦 Planar'
+                    : 'Nenhum'}
+                </Typography>
                 <Typography>
                   Vidas:{' '}
-                  {'❤'.repeat(myPlayer?.lives ?? cfg.max_lives ?? 3) ||
+                  {'❤'.repeat(ui.myPlayer?.lives ?? cfg.max_lives ?? 3) ||
                     '0'}
                 </Typography>
-                {myPlayer && myPlayer.is_dead && (
+                {ui.myPlayer && ui.myPlayer.is_dead && (
                   <Typography color="error.main">💀 Espectando...</Typography>
                 )}
               </Paper>
             </Box>
-          </Grid>
-        </Grid>
+          </Box>
+        </Box>
       </Container>
     </Box>
   );

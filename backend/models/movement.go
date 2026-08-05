@@ -16,9 +16,9 @@ var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 // --- CONSTANTES DE JOGO (DEVE SER AS MESMAS DO FRONTEND) ---
 const (
 	ArenaWidth   = 800.0
-	ArenaHeight  = 600.0
-	TileSize     = 100.0 // Cada bloco da arena terá 100x100
-	PlayerRadius = 25.0  // Raio da bola no frontend
+	ArenaHeight  = 1000.0 // 10 linhas: dá abismo real abaixo das ilhas flutuantes
+	TileSize     = 100.0  // Cada bloco da arena terá 100x100
+	PlayerRadius = 25.0  // Raio base da bola no frontend (buffs podem mudar)
 
 	// Constantes de Movimento e Física
 	MoveSpeed          = 8.0
@@ -50,9 +50,9 @@ const (
 	// Geração procedural de ilhas (aumente para "escalar" o jogo)
 	MinIslands     = 3  // Número mínimo de ilhas por rodada
 	MaxIslands     = 7  // Número máximo de ilhas por rodada
-	IslandWidthMin = 2  // Largura mínima de cada ilha (em tiles)
-	IslandWidthMax = 5  // Largura máxima de cada ilha (em tiles)
-	MaxGapCols     = 2  // Gap horizontal máximo entre ilhas (em tiles)
+	IslandWidthMin = 1  // Largura mínima de cada ilha (em tiles) — pilares arriscados
+	IslandWidthMax = 6  // Largura máxima de cada ilha (em tiles) — bases seguras
+	MaxGapCols     = 3  // Gap horizontal máximo entre ilhas (em tiles)
 	MaxRiseTiles   = 2  // Subida máxima entre ilhas (em tiles)
 	MaxArenaCols   = 26 // Teto de colunas da arena (define a largura)
 	EdgeMarginCols = 1  // Margem mínima de abismo nas bordas laterais
@@ -89,6 +89,13 @@ type GameConfig struct {
 	IslandWidthMin int `json:"island_width_min"`
 	IslandWidthMax int `json:"island_width_max"`
 	MaxGapCols     int `json:"max_gap_cols"`
+
+	// Parâmetros dos power-ups
+	DropInterval  float64 `json:"powerup_interval"`  // Segundos entre drops
+	DropLifetime  float64 `json:"powerup_lifetime"`  // Segundos até o drop desparecer
+	RedDuration   float64 `json:"red_duration"`      // Duração do buff Tanque
+	PurpleDuration float64 `json:"purple_duration"`  // Duração do buff Velocista
+	BlueDuration  float64 `json:"blue_duration"`     // Duração do buff Planar
 }
 
 // GetGameConfig retorna as constantes de jogo para o frontend.
@@ -114,18 +121,24 @@ func GetGameConfig() GameConfig {
 		IslandWidthMin: IslandWidthMin,
 		IslandWidthMax: IslandWidthMax,
 		MaxGapCols:    MaxGapCols,
+		DropInterval:  DropInterval.Seconds(),
+		DropLifetime:  DropLifetime.Seconds(),
+		RedDuration:   BuffRedDuration.Seconds(),
+		PurpleDuration: BuffPurpleDuration.Seconds(),
+		BlueDuration:  BuffBlueDuration.Seconds(),
 	}
 }
 
 // --- STRUCTS DO ESTADO DE JOGO ---
 
 type ArenaTile struct {
-	ID        string  `json:"id"`
-	X         float64 `json:"x"`
-	Y         float64 `json:"y"`
-	IsFalling bool    `json:"is_falling"`
-	IsActive  bool    `json:"is_active"`
-	Kind      string  `json:"kind"` // Autotile: "top" | "mid" | "bottom"
+	ID        string    `json:"id"`
+	X         float64   `json:"x"`
+	Y         float64   `json:"y"`
+	IsFalling bool      `json:"is_falling"`
+	IsActive  bool      `json:"is_active"`
+	Kind      string    `json:"kind"` // Autotile: "top" | "mid" | "bottom"
+	FallAt    time.Time `json:"-"`    // Quando o tile em queda é removido (serializado apenas pelo hub)
 }
 
 type Player struct {
@@ -154,6 +167,11 @@ type Player struct {
 	dashUntil   time.Time `json:"-"` // Fim da janela ativa do dash
 	dashReadyAt time.Time `json:"-"` // Quando o próximo dash será liberado
 
+	// Power-ups (buff ativo — apenas um por vez)
+	Buff          string    `json:"buff"`           // Tipo do buff ativo ("" se nenhum)
+	BuffUntil     time.Time `json:"-"`              // Fim do buff
+	BuffRemaining float64   `json:"buff_remaining"` // Segundos restantes (HUD)
+
 	// Campos de controle
 	lastGroundedAt time.Time `json:"-"`          // Último momento em que estava no chão (coyote time)
 	jumpBufferedAt time.Time `json:"-"`          // Momento em que o pulo foi pressionado (jump buffer)
@@ -167,6 +185,7 @@ type Player struct {
 type GameState struct {
 	Players    map[string]*Player    `json:"players"`
 	ArenaTiles map[string]*ArenaTile `json:"arena_tiles"`
+	PowerUps   map[string]*PowerUp   `json:"power_ups"`
 	Status     string                `json:"status"`
 	Round      int                   `json:"round"`      // Número da rodada atual
 	RoundOver  bool                  `json:"round_over"` // Rodada encerrada, aguardando reinício
@@ -174,11 +193,15 @@ type GameState struct {
 	ArenaWidth float64               `json:"arena_width"`
 	ArenaHeight float64              `json:"arena_height"`
 
+	// Power-ups
+	DropCountdown float64   `json:"drop_countdown"` // Segundos até o próximo drop (HUD)
+	nextDropAt    time.Time `json:"-"`
+	nextPowerUpID int       `json:"-"`
+
 	SpawnPoints []SpawnPoint `json:"-"` // Pontos de spawn da rodada atual
 
 	lastBreakTime time.Time // Controla o temporizador de destruição
 	nextPlayerID  int       // Contador monotônico para gerar IDs únicos
-	roundGen      int       // Geração da rodada (invalida callbacks de tiles antigos)
 }
 
 // SpawnPoint é uma posição segura de respawn acima da ilha central.
@@ -200,9 +223,12 @@ func NewGameState() *GameState {
 	status := &GameState{
 		Players:       make(map[string]*Player),
 		ArenaTiles:    make(map[string]*ArenaTile),
+		PowerUps:      make(map[string]*PowerUp),
 		Status:        "waiting",
 		Round:         1,
 		lastBreakTime: time.Now(),
+		nextDropAt:    time.Now().Add(DropInterval),
+		DropCountdown: DropInterval.Seconds(),
 	}
 	status.generateArena()
 	return status
@@ -327,9 +353,10 @@ func buildLayout() (layoutResult, bool) {
 		return ip, true
 	}
 
-	// Ilha de spawn: um pouco maior, central e garantida.
+	// Ilha de spawn: um pouco maior, central, garantida e flutuando em altura
+	// média-alta (bottom 4), deixando abismo visível abaixo.
 	sw := imin(IslandWidthMin+2, IslandWidthMax)
-	spawn, ok := place(MaxArenaCols/2-1, sw, 5)
+	spawn, ok := place(MaxArenaCols/2-1, sw, 4)
 	if !ok {
 		return layoutResult{}, false
 	}
@@ -372,9 +399,13 @@ func buildLayout() (layoutResult, bool) {
 			if width < IslandWidthMin {
 				continue
 			}
-			// Bottom candidato de baixo p/ cima (mais baixo = mais fácil de
-			// alcançar; varia a altura mantendo a regra de ouro).
-			for _, bottom := range []int{5, 4, 3, 6, 2} {
+			// Alturas candidatas da base (bottom) da ilha, do alto (1) ao
+			// baixo (6). A ordem é sorteada a cada colocação (Fisher-Yates via
+			// rng.Perm) para garantir variedade vertical — ilhas altas, médias
+			// e baixas — respeitando a regra de alcançabilidade (canReach).
+			bottomCandidates := []int{1, 2, 3, 4, 5, 6}
+			for _, idx := range rng.Perm(len(bottomCandidates)) {
+				bottom := bottomCandidates[idx]
 				ip := islandPlan{Col: col, Width: width, Profile: islandProfile(width), Bottom: bottom}
 				if !canReach(last, ip) {
 					continue
@@ -580,15 +611,18 @@ func (gs *GameState) RespawnPlayer(playerID string) {
 	p.dashUntil = time.Time{}
 	p.dashReadyAt = time.Time{}
 	p.DashCd = 0
+	p.Buff = ""
+	p.BuffUntil = time.Time{}
+	p.BuffRemaining = 0
 	log.Printf("Jogador %s respawnado.", p.ID)
 }
 
 // ResetRound reconstrói a arena e respawna todos os jogadores conectados,
 // iniciando uma nova rodada com vidas cheias.
 func (gs *GameState) ResetRound() {
-	gs.roundGen++
 	gs.generateArena()
 	gs.lastBreakTime = time.Now()
+	gs.clearPowerUps()
 	gs.RoundOver = false
 	gs.Countdown = 0
 	gs.Round++
@@ -650,6 +684,10 @@ func (gs *GameState) ApplyPhysics() {
 		// Atualiza o cooldown do dash para o HUD (segundos restantes).
 		player.DashCd = math.Max(0, time.Until(player.dashReadyAt).Seconds())
 
+		// Raio e velocidade atuais (afetados por buffs de power-up).
+		radius := player.radius(now)
+		speed := MoveSpeed * player.speedMult()
+
 		// 0. Processa o dash agendado (edge-detect feito no ProcessInput).
 		if player.DashQueued {
 			facing := 1.0
@@ -690,9 +728,9 @@ func (gs *GameState) ApplyPhysics() {
 			// Rajada do dash: mantém a velocidade do dash sem recontrole
 			// direcional nem resistência do ar durante a janela ativa.
 		} else if player.LeftHeld {
-			player.VelocityX = -MoveSpeed
+			player.VelocityX = -speed
 		} else if player.RightHeld {
-			player.VelocityX = MoveSpeed
+			player.VelocityX = speed
 		} else if player.IsOnGround {
 			player.VelocityX *= Friction
 		}
@@ -710,17 +748,17 @@ func (gs *GameState) ApplyPhysics() {
 			if tile.IsActive {
 				// Verifica se o Player Y está dentro da faixa vertical do Tile
 				// Permite a colisão lateral se o jogador estiver verticalmente alinhado com o tile
-				if player.Y+PlayerRadius > tile.Y && player.Y-PlayerRadius < tile.Y+TileSize {
+				if player.Y+radius > tile.Y && player.Y-radius < tile.Y+TileSize {
 
 					// Colisão com a esquerda do Tile (movendo para a direita)
-					if player.VelocityX > 0 && player.X+PlayerRadius > tile.X && player.X-PlayerRadius < tile.X {
-						player.X = tile.X - PlayerRadius // Ajusta a posição para o limite do Tile
+					if player.VelocityX > 0 && player.X+radius > tile.X && player.X-radius < tile.X {
+						player.X = tile.X - radius // Ajusta a posição para o limite do Tile
 						player.VelocityX = 0
 					}
 
 					// Colisão com a direita do Tile (movendo para a esquerda)
-					if player.VelocityX < 0 && player.X-PlayerRadius < tile.X+TileSize && player.X+PlayerRadius > tile.X+TileSize {
-						player.X = tile.X + TileSize + PlayerRadius // Ajusta a posição para o limite do Tile
+					if player.VelocityX < 0 && player.X-radius < tile.X+TileSize && player.X+radius > tile.X+TileSize {
+						player.X = tile.X + TileSize + radius // Ajusta a posição para o limite do Tile
 						player.VelocityX = 0
 					}
 				}
@@ -728,22 +766,22 @@ func (gs *GameState) ApplyPhysics() {
 		}
 
 		// 3. Limite da Arena (Paredes) - Colisão X final
-		if player.X <= PlayerRadius {
-			player.X = PlayerRadius
+		if player.X <= radius {
+			player.X = radius
 			player.VelocityX = 0
 		}
-		if player.X >= gs.ArenaWidth-PlayerRadius {
-			player.X = gs.ArenaWidth - PlayerRadius
+		if player.X >= gs.ArenaWidth-radius {
+			player.X = gs.ArenaWidth - radius
 			player.VelocityX = 0
 		}
 
 		// --- 4. Tentar Atualizar Posição Y e Checar Colisão Vertical ---
 
 		// Aplica a gravidade e o movimento vertical
-		g := Gravity
+		g := Gravity * player.gravityScale()
 		if player.JumpHeld && player.VelocityY < 0 {
 			// Pulo variável: segurar a tecla reduz a gravidade ao subir.
-			g = Gravity * VariableJumpFactor
+			g = Gravity * VariableJumpFactor * player.gravityScale()
 		}
 		player.VelocityY += g
 		player.Y += player.VelocityY
@@ -753,9 +791,9 @@ func (gs *GameState) ApplyPhysics() {
 			for _, tile := range gs.ArenaTiles {
 				if tile.IsActive &&
 					player.X > tile.X && player.X < tile.X+TileSize &&
-					player.Y-PlayerRadius < tile.Y+TileSize && player.Y-PlayerRadius > tile.Y {
+					player.Y-radius < tile.Y+TileSize && player.Y-radius > tile.Y {
 
-					player.Y = tile.Y + TileSize + PlayerRadius
+					player.Y = tile.Y + TileSize + radius
 					player.VelocityY = 0
 					break
 				}
@@ -769,9 +807,9 @@ func (gs *GameState) ApplyPhysics() {
 				// Colisão Vertical (Topo do tile)
 				if player.VelocityY > 0 &&
 					player.X > tile.X && player.X < tile.X+TileSize &&
-					player.Y+PlayerRadius > tile.Y && player.Y+PlayerRadius < tile.Y+TileSize {
+					player.Y+radius > tile.Y && player.Y+radius < tile.Y+TileSize {
 
-					player.Y = tile.Y - PlayerRadius
+					player.Y = tile.Y - radius
 					player.VelocityY = 0
 					player.IsOnGround = true
 					player.lastGroundedAt = now // Renova o coyote time
@@ -817,6 +855,13 @@ func (gs *GameState) ApplyPhysics() {
 	}
 
 	// 7. Colisão bola-bola com knockback (empurrão por velocidade relativa).
+	// Antes, aplica o teto de velocidade em todos os vivos: limita a queda
+	// (evita tunneling pelos tiles) e o knockback, sem afetar o dash.
+	for _, player := range gs.Players {
+		if !player.IsDead {
+			clampSpeed(player)
+		}
+	}
 	gs.resolvePlayerCollisions(now)
 }
 
@@ -836,9 +881,10 @@ func (p *Player) dashing(now time.Time) bool {
 }
 
 // resolvePlayerCollisions detecta sobreposição entre jogadores vivos, separa
-// as bolas e aplica impulso elástico (massa igual) com restituição. Durante a
-// janela do dash, o atacante aplica knockback extra no oponente e sofre recuo
-// reduzido — a base da mecânica de empurrar.
+// as bolas e aplica impulso elástico ponderado pela massa (buff Tank faz o
+// jogador mais pesado empurrar menos e empurrar mais o oponente) com
+// restituição. Durante a janela do dash, o atacante aplica knockback extra no
+// oponente e sofre recuo reduzido — a base da mecânica de empurrar.
 func (gs *GameState) resolvePlayerCollisions(now time.Time) {
 	alive := make([]*Player, 0, len(gs.Players))
 	for _, p := range gs.Players {
@@ -850,10 +896,12 @@ func (gs *GameState) resolvePlayerCollisions(now time.Time) {
 	for i := 0; i < len(alive); i++ {
 		for j := i + 1; j < len(alive); j++ {
 			a, b := alive[i], alive[j]
+			radiusA := a.radius(now)
+			radiusB := b.radius(now)
 			dx := b.X - a.X
 			dy := b.Y - a.Y
 			dist := math.Hypot(dx, dy)
-			minDist := 2 * PlayerRadius
+			minDist := radiusA + radiusB
 
 			if dist >= minDist || dist == 0 {
 				continue
@@ -862,28 +910,33 @@ func (gs *GameState) resolvePlayerCollisions(now time.Time) {
 			// Normal apontando de a para b.
 			nx, ny := dx/dist, dy/dist
 
-			// Separação: distribui a sobreposição igualmente.
+			// Separação: distribui a sobreposição proporcionalmente à massa
+			// (o mais leve desloca mais).
+			massA := a.mass()
+			massB := b.mass()
 			overlap := minDist - dist
-			a.X -= nx * overlap / 2
-			a.Y -= ny * overlap / 2
-			b.X += nx * overlap / 2
-			b.Y += ny * overlap / 2
+			totalMass := massA + massB
+			a.X -= nx * overlap * (massB / totalMass)
+			a.Y -= ny * overlap * (massB / totalMass)
+			b.X += nx * overlap * (massA / totalMass)
+			b.Y += ny * overlap * (massA / totalMass)
 
-			// Impulso elástico de massa igual (restituição).
+			// Impulso elástico ponderado pela massa (restituição).
 			rel := (b.VelocityX-a.VelocityX)*nx + (b.VelocityY-a.VelocityY)*ny
 			if rel < 0 {
-				imp := -(1 + Restitution) * rel / 2
+				imp := -(1 + Restitution) * rel * (massB / totalMass)
 				a.VelocityX -= imp * nx
 				a.VelocityY -= imp * ny
-				b.VelocityX += imp * nx
-				b.VelocityY += imp * ny
+				b.VelocityX += imp * (massA / massB) * nx
+				b.VelocityY += imp * (massA / massB) * ny
 			}
 
-			// Knockback mínimo garantido ao encostar (bumps sempre empurram).
-			a.VelocityX -= nx * KnockbackBase
-			a.VelocityY -= ny * KnockbackBase
-			b.VelocityX += nx * KnockbackBase
-			b.VelocityY += ny * KnockbackBase
+			// Knockback mínimo garantido ao encostar (bumps sempre empurram),
+			// ponderado pela massa: o pesado empurra mais e recua menos.
+			b.VelocityX += nx * KnockbackBase * (massA / massB)
+			b.VelocityY += ny * KnockbackBase * (massA / massB)
+			a.VelocityX -= nx * KnockbackBase * (massB / massA)
+			a.VelocityY -= ny * KnockbackBase * (massB / massA)
 
 			// Dash: atacante em janela ativa aplica knockback extra no oponente
 			// e sofre recuo reduzido.
@@ -907,7 +960,8 @@ func (gs *GameState) resolvePlayerCollisions(now time.Time) {
 }
 
 func (gs *GameState) CheckArenaDestruction() {
-	if time.Since(gs.lastBreakTime).Seconds() < BreakInterval {
+	now := time.Now()
+	if now.Sub(gs.lastBreakTime).Seconds() < BreakInterval {
 		return
 	}
 
@@ -921,19 +975,22 @@ func (gs *GameState) CheckArenaDestruction() {
 		return
 	}
 
-	gen := gs.roundGen // Geração atual: invalida callbacks de rodadas anteriores
 	tile := activeTiles[rng.Intn(len(activeTiles))]
 	tile.IsFalling = true
-	gs.lastBreakTime = time.Now()
+	tile.FallAt = now.Add(2 * time.Second) // Tempo que o tile fica vermelho antes de cair
+	gs.lastBreakTime = now
 	log.Printf("Tile %s começou a cair", tile.ID)
+}
 
-	// Agenda a destruição final após 2 segundos (o tempo que o tile fica vermelho)
-	time.AfterFunc(time.Second*2, func() {
-		if gs.roundGen != gen {
-			return // Rodada mudou; este tile não pertence mais à arena atual
+// ExpireFallingTiles remove os tiles cuja janela de queda expirou. Deve ser
+// chamado pela goroutine do Hub (serializado), assim como todo o resto do
+// GameState — a destruição nunca acontece em goroutines externas.
+func (gs *GameState) ExpireFallingTiles(now time.Time) {
+	for _, tile := range gs.ArenaTiles {
+		if tile.IsFalling && now.After(tile.FallAt) {
+			tile.IsFalling = false
+			tile.IsActive = false
+			log.Printf("Tile %s removido permanentemente. Buraco criado!", tile.ID)
 		}
-		tile.IsActive = false
-		tile.IsFalling = false
-		log.Printf("Tile %s removido permanentemente. Buraco criado!", tile.ID)
-	})
+	}
 }

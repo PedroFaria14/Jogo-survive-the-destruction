@@ -6,6 +6,8 @@ import (
 	"game-backend/service"
 	"log"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -25,6 +27,15 @@ type Client struct {
 	Send     chan []byte     // Canal para enviar mensagens ao navegador
 	Hub      *Hub            // Referência ao Hub
 	PlayerID string          // ID do Jogador (chave no mapa GameState)
+
+	// closed indica que os pumps já encerraram. Evita que um Register chegue
+	// depois do Unregister (corrida de desconexão rápida) e crie um player
+	// fantasma que nunca seria removido.
+	closed atomic.Bool
+
+	// closeOnce garante que o Unregister + fechamento da conexão sejam
+	// enviados exatamente uma vez, vindos de qualquer um dos pumps.
+	closeOnce sync.Once
 }
 
 // Hub gerencia as conexões de clientes e o estado do jogo
@@ -55,13 +66,17 @@ func NewHub(ss service.ScoreService) *Hub {
 	}
 }
 
-// removeClient remove o cliente do mapa e fecha o canal Send apenas uma vez.
-// Deve ser chamado somente a partir da goroutine Run() (serializado).
+// removeClient remove o cliente do mapa, fecha o canal Send (apenas uma vez)
+// e remove o player correspondente do GameState. Deve ser chamado somente a
+// partir da goroutine Run() (serializado).
 func (h *Hub) removeClient(client *Client) {
 	if _, ok := h.Clients[client]; ok {
 		delete(h.Clients, client)
 		close(client.Send)
 	}
+	// Remove também do GameState em todos os caminhos (desconexão e eviction
+	// de cliente lento), evitando players fantasma acumulados.
+	h.GameState.RemovePlayer(client.PlayerID)
 }
 
 // broadcastState serializa e envia o estado atual para todos os clientes.
@@ -83,25 +98,8 @@ func (h *Hub) broadcastState() {
 	}
 }
 
-// sendToPlayer envia uma mensagem JSON para o cliente com o PlayerID informado.
-func (h *Hub) sendToPlayer(playerID string, msg map[string]string) {
-	for client := range h.Clients {
-		if client.PlayerID == playerID {
-			data, err := json.Marshal(msg)
-			if err != nil {
-				return
-			}
-			select {
-			case client.Send <- data:
-			default:
-			}
-			return
-		}
-	}
-}
-
-// saveDeadScores salva (uma única vez) o placar dos jogadores mortos e os
-// notifica com game_over. Não fecha a conexão — o jogador vira espectador.
+// saveDeadScores salva (uma única vez) o placar dos jogadores mortos.
+// Não fecha a conexão — o jogador vira espectador.
 func (h *Hub) saveDeadScores() {
 	for _, p := range h.GameState.Players {
 		if !p.IsDead || p.ScoreSaved {
@@ -121,8 +119,6 @@ func (h *Hub) saveDeadScores() {
 				log.Printf("ERRO ao salvar placar do jogador %s: %v", pp.ID, err)
 			}
 		}()
-
-		h.sendToPlayer(p.ID, map[string]string{"type": "game_over", "player_id": p.ID})
 	}
 }
 
@@ -184,10 +180,12 @@ func (h *Hub) tick(now time.Time) {
 		return
 	}
 
-	// 3. Rodada ativa: física, destruição e placares.
+	// 3. Rodada ativa: física, power-ups, destruição e placares.
 	h.saveDeadScores()
+	gs.UpdatePowerUps(now)
 	gs.ApplyPhysics()
 	gs.CheckArenaDestruction()
+	gs.ExpireFallingTiles(now)
 	for _, p := range gs.Players {
 		if !p.IsDead {
 			p.Score = int(now.Sub(p.StartTime).Seconds())
@@ -210,6 +208,12 @@ func (h *Hub) Run() {
 			h.tick(now)
 
 		case client := <-h.Register:
+			// Conexão pode já ter encerrado (corrida: Unregister consumido
+			// antes deste Register). Não cria player fantasma nesse caso.
+			if client.closed.Load() {
+				client.Conn.Close()
+				continue
+			}
 			h.Clients[client] = true
 			log.Printf("Novo cliente conectado. Total de clientes: %d", len(h.Clients))
 
@@ -224,30 +228,30 @@ func (h *Hub) Run() {
 			}
 
 		case client := <-h.Unregister:
-			h.removeClient(client) // Fecha o channel apenas se ainda estiver no mapa
-			h.GameState.RemovePlayer(client.PlayerID)
+			h.removeClient(client)
 			log.Printf("Cliente desconectado. Total de clientes: %d", len(h.Clients))
 
 		case playerCmd := <-h.Command:
 			// Comando de join: define o nickname do jogador (sanitizado).
 			if playerCmd.Cmd.Type == "join" {
-				name := strings.TrimSpace(playerCmd.Cmd.Name)
+				name := []rune(strings.TrimSpace(playerCmd.Cmd.Name))
 				if len(name) > 20 {
 					name = name[:20]
 				}
 				if p := h.GameState.Players[playerCmd.PlayerID]; p != nil {
-					p.Name = name
-					log.Printf("Jogador %s definiu o nome: %q", playerCmd.PlayerID, name)
+					p.Name = string(name)
+					log.Printf("Jogador %s definiu o nome: %q", playerCmd.PlayerID, string(name))
 				}
 				continue
 			}
-			// Comando de restart: respawna o jogador no mesmo mapa com vidas cheias.
+			// Comando de restart: respawna o jogador no mesmo mapa com vidas
+			// cheias. Apenas jogadores mortos (evita exploit de cura/teleporte).
 			if playerCmd.Cmd.Type == "restart" {
 				if !h.roundOver {
-					if p := h.GameState.Players[playerCmd.PlayerID]; p != nil {
+					if p := h.GameState.Players[playerCmd.PlayerID]; p != nil && p.IsDead {
 						p.Lives = models.MaxLives
+						h.GameState.RespawnPlayer(playerCmd.PlayerID)
 					}
-					h.GameState.RespawnPlayer(playerCmd.PlayerID)
 				}
 				continue
 			}
