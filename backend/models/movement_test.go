@@ -32,6 +32,39 @@ func TestSanitizeColor(t *testing.T) {
 	}
 }
 
+func TestSpawnLostTile(t *testing.T) {
+	gs := NewGameState()
+	gs.ArenaTiles = make(map[string]*ArenaTile)
+	gs.nextLostTileAt = time.Now().Add(-time.Second)
+	gs.ArenaWidth = 8 * TileSize
+	gs.ArenaHeight = ArenaHeight
+
+	before := gs.nextLostTileAt
+	gs.SpawnLostTile(time.Now())
+
+	if len(gs.ArenaTiles) != 1 {
+		t.Fatalf("esperava 1 quadrado perdido, obteve %d", len(gs.ArenaTiles))
+	}
+	for _, tile := range gs.ArenaTiles {
+		if tile.Kind != "lost" || !tile.IsActive {
+			t.Fatalf("quadrado perdido inválido: %+v", tile)
+		}
+	}
+	if !gs.nextLostTileAt.After(before) {
+		t.Fatalf("timer do quadrado perdido não avançou")
+	}
+}
+
+func TestSpawnLostTileCooldown(t *testing.T) {
+	gs := NewGameState()
+	gs.ArenaTiles = make(map[string]*ArenaTile)
+	gs.nextLostTileAt = time.Now().Add(time.Hour)
+	gs.SpawnLostTile(time.Now())
+	if len(gs.ArenaTiles) != 0 {
+		t.Fatalf("não deveria spawnar antes do timer")
+	}
+}
+
 func TestIslandProfile(t *testing.T) {
 	got := islandProfile(5)
 	want := []int{1, 2, 3, 2, 1}

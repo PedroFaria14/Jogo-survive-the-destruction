@@ -186,6 +186,7 @@ func (h *Hub) tick(now time.Time) {
 	gs.ApplyPhysics()
 	gs.CheckArenaDestruction()
 	gs.ExpireFallingTiles(now)
+	gs.SpawnLostTile(now)
 	for _, p := range gs.Players {
 		if !p.IsDead {
 			p.Score = int(now.Sub(p.StartTime).Seconds())

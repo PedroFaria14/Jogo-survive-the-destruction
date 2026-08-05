@@ -41,7 +41,7 @@ const DEFAULT_CFG = {
   move_speed: 8,
   jump_force: 20,
   gravity: 1.5,
-  break_interval: 5,
+  break_interval: 3,
   max_air_jumps: 1,
   max_lives: 3,
   dash_speed: 20,
@@ -1127,6 +1127,25 @@ export default function App() {
 
         // Faixa de grama apenas na superfície ("top")
         if (kind === 'top') {
+          ctx.fillStyle = PALETTE.grassTop;
+          roundRectPath(ctx, x, y, s, 20, 10);
+          ctx.fill();
+          ctx.fillStyle = PALETTE.grassEdge;
+          roundRectPath(ctx, x, y + 14, s, 8, 4);
+          ctx.fill();
+        }
+
+        // Quadrado perdido: plataforma extra com halo dourado pulsante para
+        // destacar que é um tile especial aparecendo fora do lugar.
+        if (kind === 'lost') {
+          const pulse = 0.14 + Math.sin(now / 260) * 0.05;
+          ctx.fillStyle = `rgba(244,185,66,${pulse.toFixed(3)})`;
+          roundRectPath(ctx, x - 7, y - 7, s + 14, s + 14, 18);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(217,154,43,0.7)';
+          ctx.lineWidth = 2.5;
+          roundRectPath(ctx, x - 7, y - 7, s + 14, s + 14, 18);
+          ctx.stroke();
           ctx.fillStyle = PALETTE.grassTop;
           roundRectPath(ctx, x, y, s, 20, 10);
           ctx.fill();

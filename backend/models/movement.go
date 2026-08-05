@@ -29,7 +29,6 @@ const (
 	VariableJumpFactor = 0.6 // Fator de gravidade enquanto segura o pulo (pulo variável)
 	Friction           = 0.85
 	AirResistance      = 0.98
-	BreakInterval      = 5 // Segundos para quebrar um tile
 
 	// Polimento de controle
 	CoyoteTime = 120 * time.Millisecond // Janela para pular após sair da borda
@@ -38,6 +37,15 @@ const (
 	// Escape de buracos e anti-trava
 	MaxAirJumps  = 1               // Pulo duplo: um pulo extra no ar para sair de buracos
 	StuckTimeout = 4 * time.Second // Se parado no chão por muito tempo, respawna
+
+	// Destruição da arena (quanto menor, mais frenético)
+	BreakInterval = 3               // Segundos entre cada tile destruído
+	FallDelay     = 1 * time.Second // Tempo que o tile fica vermelho antes de cair
+
+	// Quadrado perdido: plataforma extra que aparece de vez em quando em
+	// posição aleatória e permanece até ser destruída pelo timer normal.
+	LostTileIntervalMin = 8 * time.Second
+	LostTileIntervalMax = 14 * time.Second
 
 	// Stocks (vidas por rodada)
 	MaxLives = 3 // Vidas iniciais de cada jogador na rodada
@@ -203,6 +211,7 @@ type GameState struct {
 	SpawnPoints []SpawnPoint `json:"-"` // Pontos de spawn da rodada atual
 
 	lastBreakTime time.Time // Controla o temporizador de destruição
+	nextLostTileAt time.Time // Quando o próximo quadrado perdido aparece
 	nextPlayerID  int       // Contador monotônico para gerar IDs únicos
 }
 
@@ -243,6 +252,7 @@ func NewGameState() *GameState {
 		Status:        "waiting",
 		Round:         1,
 		lastBreakTime: time.Now(),
+		nextLostTileAt: time.Now().Add(LostTileIntervalMin),
 		nextDropAt:    time.Now().Add(DropInterval),
 		DropCountdown: DropInterval.Seconds(),
 	}
@@ -652,6 +662,7 @@ func (gs *GameState) respawnPlayer(playerID string, resetScore bool) {
 func (gs *GameState) ResetRound() {
 	gs.generateArena()
 	gs.lastBreakTime = time.Now()
+	gs.nextLostTileAt = time.Now().Add(LostTileIntervalMin)
 	gs.clearPowerUps()
 	gs.RoundOver = false
 	gs.Countdown = 0
@@ -1008,7 +1019,7 @@ func (gs *GameState) CheckArenaDestruction() {
 
 	tile := activeTiles[rng.Intn(len(activeTiles))]
 	tile.IsFalling = true
-	tile.FallAt = now.Add(2 * time.Second) // Tempo que o tile fica vermelho antes de cair
+	tile.FallAt = now.Add(FallDelay) // Tempo que o tile fica vermelho antes de cair
 	gs.lastBreakTime = now
 	log.Printf("Tile %s começou a cair", tile.ID)
 }
@@ -1024,4 +1035,45 @@ func (gs *GameState) ExpireFallingTiles(now time.Time) {
 			log.Printf("Tile %s removido permanentemente. Buraco criado!", tile.ID)
 		}
 	}
+}
+
+// SpawnLostTile cria, de vez em quando, um "quadrado perdido": um tile de
+// plataforma extra em posição aleatória vazia da arena. Ele permanece no pool
+// normal de destruição (fica até ser destruído pelo timer). Deve ser chamado
+// pela goroutine do Hub (serializado).
+func (gs *GameState) SpawnLostTile(now time.Time) {
+	if now.Before(gs.nextLostTileAt) {
+		return
+	}
+
+	cols := int(gs.ArenaWidth / TileSize)
+	rows := int(gs.ArenaHeight / TileSize)
+	if cols <= 0 || rows <= 0 {
+		gs.nextLostTileAt = now.Add(LostTileIntervalMin)
+		return
+	}
+
+	for attempt := 0; attempt < 20; attempt++ {
+		r := rng.Intn(rows)
+		c := rng.Intn(cols)
+		id := fmt.Sprintf("tile_%d_%d", r, c)
+		if _, exists := gs.ArenaTiles[id]; exists {
+			continue
+		}
+		gs.ArenaTiles[id] = &ArenaTile{
+			ID:        id,
+			X:         float64(c) * TileSize,
+			Y:         float64(r) * TileSize,
+			IsActive:  true,
+			Kind:      "lost",
+		}
+		interval := LostTileIntervalMin.Seconds() +
+			rng.Float64()*(LostTileIntervalMax-LostTileIntervalMin).Seconds()
+		gs.nextLostTileAt = now.Add(time.Duration(interval * float64(time.Second)))
+		log.Printf("Quadrado perdido apareceu em %s", id)
+		return
+	}
+
+	// Sem célula vazia: tenta de novo no próximo intervalo.
+	gs.nextLostTileAt = now.Add(LostTileIntervalMin)
 }
