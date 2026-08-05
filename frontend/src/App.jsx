@@ -40,11 +40,117 @@ const DEFAULT_CFG = {
   dash_duration: 0.25,
   knockback_dash: 11,
   restitution: 0.85,
+  min_islands: 3,
+  max_islands: 7,
+  island_width_min: 2,
+  island_width_max: 5,
+  max_gap_cols: 2,
 };
 
 // Configuração das animações da bola
 const TRAIL_LENGTH = 12; // Comprimento do rastro
 const GLOW_PULSE_SPEED = 260; // Velocidade do pulso de brilho
+
+// =======================
+// Paleta "ilhas flutuantes" (flat + sereno + terroso)
+// =======================
+const PALETTE = {
+  skyTop: '#dcece9',
+  skyMid: '#f6e3c5',
+  skyBottom: '#efc58b',
+  grassTop: '#8a9a4a',
+  grassEdge: '#6f7d3a',
+  soilTop: '#b08d5f',
+  soilBottom: '#8f6f47',
+  soilBorder: '#6b5a3f',
+  islandShadow: 'rgba(90,70,40,0.18)',
+  falling: '#c9743d',
+  fallingDark: '#a8552f',
+  treeTrunk: '#7c5a3a',
+  treeCanopy: '#6f7d3f',
+  treeCanopyLight: '#87944f',
+  ballHi: '#ffe3a3',
+  ballMid: '#f2b544',
+  ballDark: '#d98f24',
+  ballGlow: '#f4b942',
+  ballMarker: '#7a4b12',
+  ballOutline: 'rgba(122,75,18,0.6)',
+  trailRGB: '244,185,66',
+  ghostFill: 'rgba(180,150,90,0.18)',
+  ghostStroke: 'rgba(160,120,60,0.4)',
+  gold: '#f4b942',
+  amber: '#e0a63c',
+  terracotta: '#c96f4a',
+  soilCrumb: '#8f6f47',
+  cream: '#fdf6e9',
+  creamOverlay: 'rgba(252,244,231,0.94)',
+  textBrown: '#4a3b28',
+  textSoft: '#7a623f',
+  olive: '#6f7d3a',
+  goldStrong: '#d99a2b',
+  terracottaStrong: '#c96f4a',
+  borderSoft: 'rgba(145,110,64,0.55)',
+};
+
+// Caminho de retângulo com cantos arredondados (sem depender de ctx.roundRect).
+function roundRectPath(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+// Hash determinístico por posição (define quais blocos ganham árvore).
+function tileHash(x, y) {
+  let h = 17;
+  h = (h * 31 + Math.round(x)) | 0;
+  h = (h * 31 + Math.round(y)) | 0;
+  return Math.abs(h);
+}
+
+// Árvore flat: tronco marrom + copa circular olive com meia-lua clara.
+function drawTree(ctx, x, y, s) {
+  ctx.fillStyle = 'rgba(60,70,30,0.15)';
+  ctx.beginPath();
+  ctx.ellipse(x + s * 0.5, y + s * 0.62, s * 0.18, s * 0.06, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = PALETTE.treeTrunk;
+  roundRectPath(ctx, x + s * 0.46, y + s * 0.46, s * 0.08, s * 0.18, 3);
+  ctx.fill();
+
+  ctx.fillStyle = PALETTE.treeCanopy;
+  ctx.beginPath();
+  ctx.arc(x + s * 0.5, y + s * 0.34, s * 0.22, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = PALETTE.treeCanopyLight;
+  ctx.beginPath();
+  ctx.arc(x + s * 0.43, y + s * 0.27, s * 0.12, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// Nuvem suave (flat) no céu.
+function drawCloud(ctx, x, y, s) {
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath();
+  ctx.ellipse(x, y, s, s * 0.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(x - s * 0.6, y + s * 0.15, s * 0.55, s * 0.32, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(x + s * 0.6, y + s * 0.12, s * 0.5, s * 0.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
 
 // =======================
 // Desenho da bola (animado)
@@ -57,7 +163,7 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius) {
   anim.trail.forEach((t, i) => {
     const alpha = (i / TRAIL_LENGTH) * 0.22;
     const r = radius * 0.55 * (i / TRAIL_LENGTH);
-    ctx.fillStyle = `rgba(34,197,94,${alpha.toFixed(3)})`;
+    ctx.fillStyle = `rgba(${PALETTE.trailRGB},${alpha.toFixed(3)})`;
     ctx.beginPath();
     ctx.arc(t.x, t.y, r, 0, Math.PI * 2);
     ctx.fill();
@@ -93,13 +199,13 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius) {
   ctx.scale(scaleX, scaleY);
 
   // Pulso/brilho
-  ctx.shadowColor = '#22c55e';
+  ctx.shadowColor = PALETTE.ballGlow;
   ctx.shadowBlur = 16 + Math.sin(now / GLOW_PULSE_SPEED) * 6;
 
   const grad = ctx.createRadialGradient(-6, -6, 4, 0, 0, radius);
-  grad.addColorStop(0, '#a7f3d0');
-  grad.addColorStop(0.55, '#34d399');
-  grad.addColorStop(1, '#059669');
+  grad.addColorStop(0, PALETTE.ballHi);
+  grad.addColorStop(0.55, PALETTE.ballMid);
+  grad.addColorStop(1, PALETTE.ballDark);
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.arc(0, 0, radius, 0, Math.PI * 2);
@@ -109,14 +215,14 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius) {
   // Marcador de rotação
   ctx.save();
   ctx.rotate(anim.rotation);
-  ctx.fillStyle = '#064e3b';
+  ctx.fillStyle = PALETTE.ballMarker;
   ctx.beginPath();
   ctx.arc(radius * 0.55, 0, 4.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 
   // Contorno
-  ctx.strokeStyle = 'rgba(6,78,59,0.65)';
+  ctx.strokeStyle = PALETTE.ballOutline;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.arc(0, 0, radius, 0, Math.PI * 2);
@@ -126,11 +232,11 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius) {
 
 // Jogador morto: "fantasma" translúcido (modo espectador)
 function drawGhost(ctx, player, radius) {
-  ctx.fillStyle = 'rgba(34,197,94,0.16)';
+  ctx.fillStyle = PALETTE.ghostFill;
   ctx.beginPath();
   ctx.arc(player.x, player.y, radius, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(34,197,94,0.35)';
+  ctx.strokeStyle = PALETTE.ghostStroke;
   ctx.lineWidth = 1.5;
   ctx.setLineDash([5, 5]);
   ctx.beginPath();
@@ -147,11 +253,12 @@ const Leaderboard = ({ scores }) => (
     sx={{
       p: 3,
       borderRadius: 4,
-      bgcolor: 'rgba(15,23,42,0.85)',
-      border: '1px solid rgba(34,197,94,0.4)',
+      bgcolor: PALETTE.cream,
+      border: `1px solid rgba(201,111,74,0.45)`,
+      boxShadow: '0 10px 30px rgba(90,70,40,0.12)',
     }}
   >
-    <Typography variant="h6" color="#22c55e" gutterBottom>
+    <Typography variant="h6" color={PALETTE.terracottaStrong} gutterBottom>
       🏅 Top 10 Sobreviventes
     </Typography>
 
@@ -165,7 +272,7 @@ const Leaderboard = ({ scores }) => (
           <ListItem
             key={index}
             sx={{
-              bgcolor: 'rgba(30,41,59,0.8)',
+              bgcolor: 'rgba(240,224,196,0.6)',
               borderRadius: 2,
               mb: 1,
             }}
@@ -181,7 +288,7 @@ const Leaderboard = ({ scores }) => (
               primary={score.name || (score.player_id ? `Player_${score.player_id.slice(-4)}` : 'Anônimo')}
             />
 
-            <Typography color="success.main" fontWeight="bold">
+            <Typography color={PALETTE.goldStrong} fontWeight="bold">
               {score.score_seconds}s
             </Typography>
           </ListItem>
@@ -220,8 +327,9 @@ export default function App() {
   const impactsRef = useRef({});
   const prevLivesRef = useRef(null);
 
-  const arenaW = cfg.arena_width;
-  const arenaH = cfg.arena_height;
+  // Dimensões da arena: o servidor envia por rodada (mapa procedural muda).
+  const arenaW = gameState?.arena_width ?? cfg.arena_width;
+  const arenaH = gameState?.arena_height ?? cfg.arena_height;
   const tileSize = cfg.tile_size;
   const playerRadius = cfg.player_radius;
 
@@ -438,9 +546,16 @@ export default function App() {
         spawnParticles(
           tile.x + tileSize / 2,
           tile.y + tileSize / 2,
-          '#ef4444',
-          14,
+          PALETTE.terracotta,
+          10,
           160
+        );
+        spawnParticles(
+          tile.x + tileSize / 2,
+          tile.y + tileSize / 2,
+          PALETTE.soilCrumb,
+          8,
+          130
         );
       }
       prevTilesRef.current[tile.id] = { falling: tile.is_falling, active: tile.is_active };
@@ -461,21 +576,96 @@ export default function App() {
     ctx.save();
     ctx.translate(shakeX, shakeY);
 
-    // Fundo
+    // Fundo: céu sereno em gradiente linear
     ctx.clearRect(0, 0, arenaW, arenaH);
-    ctx.fillStyle = '#020617';
+    const sky = ctx.createLinearGradient(0, 0, 0, arenaH);
+    sky.addColorStop(0, PALETTE.skyTop);
+    sky.addColorStop(0.5, PALETTE.skyMid);
+    sky.addColorStop(1, PALETTE.skyBottom);
+    ctx.fillStyle = sky;
     ctx.fillRect(0, 0, arenaW, arenaH);
 
-    // Ilhas
+    // Nuvens suaves
+    drawCloud(ctx, 130, 70, 58);
+    drawCloud(ctx, 640, 120, 42);
+    drawCloud(ctx, 380, 40, 34);
+
+    // Ilhas: blocos arredondados estilo flat com sombra, grama e árvores
+    const activeKeys = new Set();
+    Object.values(tiles).forEach((t) => {
+      if (t.is_active) activeKeys.add(t.id);
+    });
+    const hasTileAbove = (t) => {
+      const col = Math.round(t.x / tileSize);
+      const row = Math.round(t.y / tileSize);
+      return activeKeys.has(`tile_${row - 1}_${col}`);
+    };
+
     Object.values(tiles).forEach((tile) => {
       if (!tile.is_active) return;
 
-      ctx.fillStyle = tile.is_falling ? '#ef4444' : '#334155';
-      ctx.fillRect(tile.x, tile.y, tileSize, tileSize);
+      const x = tile.x;
+      const y = tile.y;
+      const s = tileSize;
+      const falling = tile.is_falling;
+      // Autotile: "top" = grama, "mid" = terra, "bottom" = ponta de pedra.
+      const kind = tile.kind || (hasTileAbove(tile) ? 'mid' : 'top');
 
-      ctx.strokeStyle = 'rgba(34,197,94,0.6)';
+      // Sombra sólida deslocada (profundidade)
+      ctx.fillStyle = PALETTE.islandShadow;
+      roundRectPath(ctx, x + 5, y + 7, s, s, 12);
+      ctx.fill();
+
+      // Corpo da ilha (solo em gradiente suave)
+      const soilGrad = ctx.createLinearGradient(0, y, 0, y + s);
+      soilGrad.addColorStop(0, PALETTE.soilTop);
+      soilGrad.addColorStop(1, PALETTE.soilBottom);
+      ctx.fillStyle = falling ? PALETTE.falling : soilGrad;
+      roundRectPath(ctx, x, y, s, s, 12);
+      ctx.fill();
+
+      if (falling) {
+        // Rachaduras do bloco caindo
+        ctx.strokeStyle = PALETTE.fallingDark;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x + s * 0.3, y + s * 0.2);
+        ctx.lineTo(x + s * 0.5, y + s * 0.5);
+        ctx.lineTo(x + s * 0.38, y + s * 0.8);
+        ctx.stroke();
+      }
+
+      // Faixa de grama apenas na superfície ("top")
+      if (kind === 'top') {
+        ctx.fillStyle = PALETTE.grassTop;
+        roundRectPath(ctx, x, y, s, 20, 10);
+        ctx.fill();
+        ctx.fillStyle = PALETTE.grassEdge;
+        roundRectPath(ctx, x, y + 14, s, 8, 4);
+        ctx.fill();
+      }
+
+      // Ponta de pedra na base da ilha ("bottom")
+      if (kind === 'bottom') {
+        ctx.fillStyle = PALETTE.soilBorder;
+        ctx.beginPath();
+        ctx.moveTo(x + s * 0.2, y + s * 0.6);
+        ctx.lineTo(x + s * 0.5, y + s * 0.92);
+        ctx.lineTo(x + s * 0.8, y + s * 0.6);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Contorno marrom suave
+      ctx.strokeStyle = PALETTE.soilBorder;
       ctx.lineWidth = 2;
-      ctx.strokeRect(tile.x, tile.y, tileSize, tileSize);
+      roundRectPath(ctx, x, y, s, s, 12);
+      ctx.stroke();
+
+      // Árvore em blocos de superfície (autotile "top")
+      if (!falling && kind === 'top' && tileHash(x, y) % 3 === 0) {
+        drawTree(ctx, x, y, s);
+      }
     });
 
     // Partículas
@@ -531,11 +721,11 @@ export default function App() {
         if (justDied) sfx.death();
         if (justDoubleJumped) {
           sfx.doubleJump();
-          spawnParticles(player.x, player.y, '#a7f3d0', 10, 130);
+          spawnParticles(player.x, player.y, PALETTE.gold, 10, 130);
         }
         if (lostLife) {
           sfx.respawn();
-          spawnParticles(player.x, player.y, '#fbbf24', 14, 150);
+          spawnParticles(player.x, player.y, PALETTE.amber, 14, 150);
           addShake(6);
         }
         prevLivesRef.current = player.lives;
@@ -556,9 +746,9 @@ export default function App() {
         const maxCd = cfg.dash_cooldown || 1.5;
         const barW = playerRadius * 2;
         const barY = player.y + playerRadius + 8;
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillStyle = 'rgba(90,70,40,0.25)';
         ctx.fillRect(player.x - playerRadius, barY, barW, 5);
-        ctx.fillStyle = cd > 0 ? '#f59e0b' : '#22c55e';
+        ctx.fillStyle = cd > 0 ? PALETTE.amber : PALETTE.goldStrong;
         ctx.fillRect(
           player.x - playerRadius,
           barY,
@@ -581,8 +771,8 @@ export default function App() {
         if (dist < hitDist && prev >= hitDist) {
           sfx.hit();
           addShake(5);
-          spawnParticles((a.x + b.x) / 2, (a.y + b.y) / 2, '#fbbf24', 10, 200);
-          spawnParticles((a.x + b.x) / 2, (a.y + b.y) / 2, '#38bdf8', 8, 160);
+          spawnParticles((a.x + b.x) / 2, (a.y + b.y) / 2, PALETTE.terracotta, 10, 200);
+          spawnParticles((a.x + b.x) / 2, (a.y + b.y) / 2, PALETTE.gold, 8, 160);
         }
         impactsRef.current[key] = dist;
       }
@@ -648,7 +838,7 @@ export default function App() {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,
-    bgcolor: 'rgba(2,6,23,0.88)',
+    bgcolor: PALETTE.creamOverlay,
     textAlign: 'center',
     p: 3,
   };
@@ -661,7 +851,7 @@ export default function App() {
       sx={{
         minHeight: '100vh',
         background:
-          'radial-gradient(circle at top, #020617 0%, #020617 60%)',
+          'linear-gradient(180deg, #fdf0d8 0%, #f6e3c5 45%, #efc58b 100%)',
       }}
     >
       <Container maxWidth="xl" sx={{ py: 6 }}>
@@ -671,7 +861,8 @@ export default function App() {
           sx={{
             mb: 6,
             fontWeight: 800,
-            background: 'linear-gradient(90deg, #38bdf8, #22c55e)',
+            color: PALETTE.textBrown,
+            background: 'linear-gradient(90deg, #d99a2b, #c96f4a)',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
           }}
@@ -684,18 +875,25 @@ export default function App() {
             <Paper
               sx={{
                 position: 'relative',
-                width: arenaW,
-                height: arenaH,
+                width: '100%',
+                maxWidth: arenaW,
                 borderRadius: 4,
                 overflow: 'hidden',
-                border: '2px solid rgba(34,197,94,0.5)',
+                border: `2px solid ${PALETTE.borderSoft}`,
+                bgcolor: PALETTE.skyTop,
+                boxShadow: '0 18px 40px rgba(90,70,40,0.18)',
               }}
             >
-              <canvas ref={canvasRef} width={arenaW} height={arenaH} />
+              <canvas
+                ref={canvasRef}
+                width={arenaW}
+                height={arenaH}
+                style={{ display: 'block', width: '100%', height: 'auto' }}
+              />
 
               {!gameStarted && (
                 <Box sx={overlaySx}>
-                  <Typography variant="h5" color="#22c55e" fontWeight={700}>
+                  <Typography variant="h5" color={PALETTE.terracottaStrong} fontWeight={700}>
                     Escolha seu nome
                   </Typography>
                   <TextField
@@ -703,17 +901,17 @@ export default function App() {
                     onChange={(e) => setNickname(e.target.value)}
                     inputProps={{ maxLength: 20 }}
                     size="small"
-                    sx={{ width: 260, bgcolor: 'rgba(15,23,42,0.7)', borderRadius: 2 }}
+                    sx={{ width: 260, bgcolor: 'rgba(255,255,255,0.6)', borderRadius: 2 }}
                   />
                   <Button
                     variant="contained"
-                    color="success"
                     size="large"
+                    sx={{ bgcolor: PALETTE.olive, '&:hover': { bgcolor: '#5f6d30' } }}
                     onClick={handleStartGame}
                   >
                     INICIAR JOGO
                   </Button>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" color={PALETTE.textSoft}>
                     Use A/D ou ←/→ para mover, W ou Espaço para pular (×2 no ar).
                     Shift para Dash (empurra oponentes). Enter também inicia.
                   </Typography>
@@ -722,12 +920,12 @@ export default function App() {
 
               {gameStarted && gameState && gameState.round_over && (
                 <Box sx={overlaySx}>
-                  <Typography variant="h4" color="#fbbf24" fontWeight={800}>
+                  <Typography variant="h4" color={PALETTE.fallingDark} fontWeight={800}>
                     NOVA RODADA
                   </Typography>
                   <Typography
                     variant="h1"
-                    color="#22c55e"
+                    color={PALETTE.goldStrong}
                     fontWeight={900}
                     sx={{ fontSize: '6rem' }}
                   >
@@ -742,18 +940,18 @@ export default function App() {
                 myPlayer &&
                 myPlayer.is_dead && (
                   <Box sx={overlaySx}>
-                    <Typography variant="h4" color="#ef4444" fontWeight={800}>
+                    <Typography variant="h4" color={PALETTE.fallingDark} fontWeight={800}>
                       VOCÊ CAIU!
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" color={PALETTE.textSoft}>
                       {othersAlive
                         ? 'Suas vidas acabaram. Observe os outros ou tente novamente.'
                         : 'A rodada terminou. Aguarde a nova rodada...'}
                     </Typography>
                     <Button
                       variant="contained"
-                      color="success"
                       size="large"
+                      sx={{ bgcolor: PALETTE.olive, '&:hover': { bgcolor: '#5f6d30' } }}
                       onClick={sendRestart}
                     >
                       TENTAR NOVAMENTE
@@ -775,8 +973,13 @@ export default function App() {
                 >
                   <Button
                     variant="contained"
-                    color="secondary"
-                    sx={{ pointerEvents: 'auto', minWidth: 64, fontSize: '1.4rem' }}
+                    sx={{
+                      pointerEvents: 'auto',
+                      minWidth: 64,
+                      fontSize: '1.4rem',
+                      bgcolor: PALETTE.olive,
+                      '&:hover': { bgcolor: '#5f6d30' },
+                    }}
                     onPointerDown={touchPress('left')}
                     onPointerUp={touchRelease('left')}
                     onPointerLeave={touchRelease('left')}
@@ -785,8 +988,13 @@ export default function App() {
                   </Button>
                   <Button
                     variant="contained"
-                    color="secondary"
-                    sx={{ pointerEvents: 'auto', minWidth: 64, fontSize: '1.4rem' }}
+                    sx={{
+                      pointerEvents: 'auto',
+                      minWidth: 64,
+                      fontSize: '1.4rem',
+                      bgcolor: PALETTE.olive,
+                      '&:hover': { bgcolor: '#5f6d30' },
+                    }}
                     onPointerDown={touchPress('right')}
                     onPointerUp={touchRelease('right')}
                     onPointerLeave={touchRelease('right')}
@@ -795,8 +1003,13 @@ export default function App() {
                   </Button>
                   <Button
                     variant="contained"
-                    color="success"
-                    sx={{ pointerEvents: 'auto', minWidth: 64, fontSize: '1.4rem' }}
+                    sx={{
+                      pointerEvents: 'auto',
+                      minWidth: 64,
+                      fontSize: '1.4rem',
+                      bgcolor: PALETTE.goldStrong,
+                      '&:hover': { bgcolor: '#c2851e' },
+                    }}
                     onPointerDown={touchPress('jump')}
                     onPointerUp={touchRelease('jump')}
                     onPointerLeave={touchRelease('jump')}
@@ -805,8 +1018,13 @@ export default function App() {
                   </Button>
                   <Button
                     variant="contained"
-                    color="warning"
-                    sx={{ pointerEvents: 'auto', minWidth: 64, fontSize: '1.4rem' }}
+                    sx={{
+                      pointerEvents: 'auto',
+                      minWidth: 64,
+                      fontSize: '1.4rem',
+                      bgcolor: PALETTE.terracottaStrong,
+                      '&:hover': { bgcolor: '#ab5a3c' },
+                    }}
                     onPointerDown={touchPress('dash')}
                     onPointerUp={touchRelease('dash')}
                     onPointerLeave={touchRelease('dash')}
@@ -822,13 +1040,23 @@ export default function App() {
             <Box display="flex" flexDirection="column" gap={3}>
               <Leaderboard scores={scores} />
 
-              <Paper sx={{ p: 3, borderRadius: 4 }}>
-                <Typography variant="h6">STATUS</Typography>
+              <Paper
+                sx={{
+                  p: 3,
+                  borderRadius: 4,
+                  bgcolor: PALETTE.cream,
+                  border: `1px solid rgba(201,111,74,0.45)`,
+                  boxShadow: '0 10px 30px rgba(90,70,40,0.12)',
+                }}
+              >
+                <Typography variant="h6" color={PALETTE.textBrown}>
+                  STATUS
+                </Typography>
                 <Typography>Nome: {nickname}</Typography>
                 <Typography>
                   Tempo: {myPlayer ? `${myPlayer.score}s` : '0s'}
                 </Typography>
-                <Typography color="success.main">
+                <Typography color={PALETTE.goldStrong} fontWeight="bold">
                   Recorde: {bestScore}s
                 </Typography>
                 <Typography>Rodada: {gameState?.round ?? 1}</Typography>

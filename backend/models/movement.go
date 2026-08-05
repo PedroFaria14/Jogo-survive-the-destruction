@@ -47,6 +47,17 @@ const (
 	DashRecoil    = 0.3  // Recuo reduzido do atacante no Dash
 	MaxSpeed      = 34.0 // Teto de velocidade (evita voar para fora da tela)
 
+	// Geração procedural de ilhas (aumente para "escalar" o jogo)
+	MinIslands     = 3  // Número mínimo de ilhas por rodada
+	MaxIslands     = 7  // Número máximo de ilhas por rodada
+	IslandWidthMin = 2  // Largura mínima de cada ilha (em tiles)
+	IslandWidthMax = 5  // Largura máxima de cada ilha (em tiles)
+	MaxGapCols     = 2  // Gap horizontal máximo entre ilhas (em tiles)
+	MaxRiseTiles   = 2  // Subida máxima entre ilhas (em tiles)
+	MaxArenaCols   = 26 // Teto de colunas da arena (define a largura)
+	EdgeMarginCols = 1  // Margem mínima de abismo nas bordas laterais
+	LayoutAttempts = 40 // Tentativas de layout antes de usar o fallback
+
 	// Dash
 	DashSpeed    = 20.0
 	DashCooldown = 1500 * time.Millisecond // Tempo entre dashes
@@ -71,6 +82,13 @@ type GameConfig struct {
 	DashDuration  float64 `json:"dash_duration"`
 	KnockbackDash float64 `json:"knockback_dash"`
 	Restitution   float64 `json:"restitution"`
+
+	// Parâmetros da geração procedural de ilhas
+	MinIslands     int `json:"min_islands"`
+	MaxIslands     int `json:"max_islands"`
+	IslandWidthMin int `json:"island_width_min"`
+	IslandWidthMax int `json:"island_width_max"`
+	MaxGapCols     int `json:"max_gap_cols"`
 }
 
 // GetGameConfig retorna as constantes de jogo para o frontend.
@@ -91,6 +109,11 @@ func GetGameConfig() GameConfig {
 		DashDuration:  DashDuration.Seconds(),
 		KnockbackDash: KnockbackDash,
 		Restitution:   Restitution,
+		MinIslands:    MinIslands,
+		MaxIslands:    MaxIslands,
+		IslandWidthMin: IslandWidthMin,
+		IslandWidthMax: IslandWidthMax,
+		MaxGapCols:    MaxGapCols,
 	}
 }
 
@@ -102,6 +125,7 @@ type ArenaTile struct {
 	Y         float64 `json:"y"`
 	IsFalling bool    `json:"is_falling"`
 	IsActive  bool    `json:"is_active"`
+	Kind      string  `json:"kind"` // Autotile: "top" | "mid" | "bottom"
 }
 
 type Player struct {
@@ -147,10 +171,20 @@ type GameState struct {
 	Round      int                   `json:"round"`      // Número da rodada atual
 	RoundOver  bool                  `json:"round_over"` // Rodada encerrada, aguardando reinício
 	Countdown  int                   `json:"countdown"`  // Segundos restantes para nova rodada
+	ArenaWidth float64               `json:"arena_width"`
+	ArenaHeight float64              `json:"arena_height"`
+
+	SpawnPoints []SpawnPoint `json:"-"` // Pontos de spawn da rodada atual
 
 	lastBreakTime time.Time // Controla o temporizador de destruição
 	nextPlayerID  int       // Contador monotônico para gerar IDs únicos
 	roundGen      int       // Geração da rodada (invalida callbacks de tiles antigos)
+}
+
+// SpawnPoint é uma posição segura de respawn acima da ilha central.
+type SpawnPoint struct {
+	X float64
+	Y float64
 }
 
 type Command struct {
@@ -170,79 +204,320 @@ func NewGameState() *GameState {
 		Round:         1,
 		lastBreakTime: time.Now(),
 	}
-	// CHAMA A NOVA FUNÇÃO DE INICIALIZAÇÃO PERSONALIZADA
-	status.initializeArenaCustom()
+	status.generateArena()
 	return status
 }
 
-// addTile é uma função auxiliar para criar e adicionar um tile no GameState
-func (gs *GameState) addTile(r, c int) {
+// addTileKind cria e adiciona um tile marcado com o tipo de autotile
+// ("top" = superfície de grama, "mid" = miolo de terra, "bottom" = ponta).
+func (gs *GameState) addTileKind(r, c int, kind string) {
 	id := fmt.Sprintf("tile_%d_%d", r, c)
-	tile := &ArenaTile{
-		ID:        id,
-		X:         float64(c) * TileSize,
-		Y:         float64(r) * TileSize,
-		IsFalling: false,
-		IsActive:  true,
+	gs.ArenaTiles[id] = &ArenaTile{
+		ID:       id,
+		X:        float64(c) * TileSize,
+		Y:        float64(r) * TileSize,
+		IsActive: true,
+		Kind:     kind,
 	}
-	gs.ArenaTiles[id] = tile
 }
 
-// initializeArenaCustom configura o mapa em formato de ilhas com abismo
-// central, pirâmides escalonadas nas pontas e uma ponte flutuante sobre o
-// abismo (área de alto risco). O fundo do mapa é vazio: quem cai morre.
-func (gs *GameState) initializeArenaCustom() {
-	// A arena tem 8 colunas (0-7) e 6 linhas (0-5, onde 0 é o topo e 5 é a base).
-	// Layout:
-	// r1 (y100):  X · · · · · · X        plataformas altas dos cantos
-	// r2 (y200):  X · · X X · X ·        ponte central flutuante (c3,c4)
-	// r3 (y300):  · X X · · X X ·        degraus da subida escalonada
-	// r4 (y400):  · X X · · X X ·
-	// r5 (y500):  X X X · · X X X        duas ilhas-base + abismo 200px central
-
-	// Pirâmide esquerda
-	gs.addTile(5, 0)
-	gs.addTile(5, 1)
-	gs.addTile(5, 2)
-	gs.addTile(4, 1)
-	gs.addTile(4, 2)
-	gs.addTile(3, 1)
-	gs.addTile(3, 2)
-	gs.addTile(2, 1)
-
-	// Pirâmide direita (espelhada)
-	gs.addTile(5, 5)
-	gs.addTile(5, 6)
-	gs.addTile(5, 7)
-	gs.addTile(4, 5)
-	gs.addTile(4, 6)
-	gs.addTile(3, 5)
-	gs.addTile(3, 6)
-	gs.addTile(2, 6)
-
-	// Pontes/plataformas
-	gs.addTile(2, 3) // Ponte central flutuante sobre o abismo
-	gs.addTile(2, 4)
-	gs.addTile(1, 0) // Canto alto esquerdo
-	gs.addTile(1, 7) // Canto alto direito
-
-	log.Printf("Arena inicializada com %d tiles no formato de ilhas.", len(gs.ArenaTiles))
+// islandPlan descreve uma ilha gerada antes de ser materializada no grid.
+type islandPlan struct {
+	Col     int   // Coluna da borda esquerda
+	Width   int   // Largura em tiles
+	Profile []int // Altura (em tiles) por coluna
+	Bottom  int   // Linha do tile mais baixo
 }
 
-// spawnPosition retorna um ponto de spawn seguro acima das ilhas, alternando
-// entre as duas pirâmides de acordo com a paridade do índice.
-func spawnPosition(index int) (float64, float64) {
-	if index%2 == 0 {
+// minTop retorna a linha do ponto mais alto da ilha.
+func (ip *islandPlan) minTop() int {
+	top := ip.Bottom - ip.Profile[0] + 1
+	for _, h := range ip.Profile {
+		if r := ip.Bottom - h + 1; r < top {
+			top = r
+		}
+	}
+	return top
+}
+
+// islandProfile monta o perfil em arco (centro alto, pontas baixas):
+// ex.: largura 5 → [1,2,3,2,1].
+func islandProfile(width int) []int {
+	prof := make([]int, width)
+	for k := 0; k < width; k++ {
+		d := k
+		if width-1-k < d {
+			d = width - 1 - k
+		}
+		prof[k] = 1 + d
+	}
+	return prof
+}
+
+// imin retorna o menor entre dois inteiros.
+func imin(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// layoutResult é o resultado de um layout: ilhas e maior coluna ocupada.
+type layoutResult struct {
+	islands []islandPlan
+	maxCol  int
+}
+
+// canReach aplica a "regra de ouro" do level design: a distância horizontal e
+// vertical entre as bordas de duas ilhas deve ser percorrível com o pulo do
+// Glowie (1 pulo + pulo duplo). É a trava que impede ilhas inalcançáveis.
+func canReach(a, b islandPlan) bool {
+	gap := 0
+	switch {
+	case b.Col >= a.Col+a.Width:
+		gap = b.Col - (a.Col + a.Width)
+	case a.Col >= b.Col+b.Width:
+		gap = a.Col - (b.Col + b.Width)
+	}
+	rise := a.minTop() - b.minTop() // >0: b está mais alto
+	switch {
+	case rise <= 0:
+		return gap <= MaxGapCols+1
+	case rise <= 1:
+		return gap <= MaxGapCols
+	case rise <= MaxRiseTiles:
+		return gap <= 1
+	default:
+		return false
+	}
+}
+
+// buildLayout sorteia a distribuição de ilhas ao redor de uma ilha central de
+// spawn. A alcançabilidade é validada A CADA ilha colocada (cada nova ilha
+// deve ser pulável a partir da última do seu lado), o que garante por indução
+// que todas são alcançáveis a partir do spawn. Um BFS final é mantido como
+// trava de segurança ("regra de ouro").
+func buildLayout() (layoutResult, bool) {
+	n := MinIslands + rng.Intn(MaxIslands-MinIslands+1)
+	occupied := map[string]bool{}
+	islands := []islandPlan{}
+	maxCol := 0
+
+	place := func(col, width, bottom int) (islandPlan, bool) {
+		prof := islandProfile(width)
+		ip := islandPlan{Col: col, Width: width, Profile: prof, Bottom: bottom}
+		for k := 0; k < width; k++ {
+			tr := bottom - prof[k] + 1
+			for r := tr; r <= bottom; r++ {
+				if occupied[fmt.Sprintf("%d_%d", col+k, r)] {
+					return ip, false
+				}
+			}
+		}
+		for k := 0; k < width; k++ {
+			tr := bottom - prof[k] + 1
+			for r := tr; r <= bottom; r++ {
+				occupied[fmt.Sprintf("%d_%d", col+k, r)] = true
+			}
+		}
+		islands = append(islands, ip)
+		if col+width-1 > maxCol {
+			maxCol = col + width - 1
+		}
+		return ip, true
+	}
+
+	// Ilha de spawn: um pouco maior, central e garantida.
+	sw := imin(IslandWidthMin+2, IslandWidthMax)
+	spawn, ok := place(MaxArenaCols/2-1, sw, 5)
+	if !ok {
+		return layoutResult{}, false
+	}
+	lastLeft, lastRight := spawn, spawn
+	left, right := spawn.Col-1, spawn.Col+spawn.Width
+
+	// Expande para os lados, alternando e validando alcançabilidade local.
+	// A largura de cada ilha é limitada ao espaço disponível no lado, para
+	// preencher a arena e chegar mais perto do total sorteado (min/max).
+	for i := 0; i < n-1; i++ {
+		placed := false
+		order := []int{i % 2, (i + 1) % 2} // 0 = esquerda, 1 = direita
+		for _, side := range order {
+			last := lastLeft
+			if side == 1 {
+				last = lastRight
+			}
+			gap := 1 + rng.Intn(MaxGapCols)
+			width := IslandWidthMin + rng.Intn(IslandWidthMax-IslandWidthMin+1)
+			col := left - gap - width + 1
+			if side == 1 {
+				col = right + gap
+			}
+			// Limita a largura ao espaço útil do lado (garante margem).
+			if side == 0 {
+				if col < EdgeMarginCols {
+					continue
+				}
+				if maxW := col - EdgeMarginCols + 1; width > maxW {
+					width = maxW
+				}
+			} else {
+				if col+IslandWidthMin-1+EdgeMarginCols > MaxArenaCols {
+					continue
+				}
+				if maxW := MaxArenaCols - EdgeMarginCols - col + 1; width > maxW {
+					width = maxW
+				}
+			}
+			if width < IslandWidthMin {
+				continue
+			}
+			// Bottom candidato de baixo p/ cima (mais baixo = mais fácil de
+			// alcançar; varia a altura mantendo a regra de ouro).
+			for _, bottom := range []int{5, 4, 3, 6, 2} {
+				ip := islandPlan{Col: col, Width: width, Profile: islandProfile(width), Bottom: bottom}
+				if !canReach(last, ip) {
+					continue
+				}
+				if _, okk := place(col, width, bottom); !okk {
+					continue
+				}
+				if side == 0 {
+					lastLeft, left = ip, col-1
+				} else {
+					lastRight, right = ip, col+width
+				}
+				placed = true
+				break
+			}
+			if placed {
+				break
+			}
+		}
+		if !placed {
+			break
+		}
+	}
+
+	if len(islands) < 2 {
+		return layoutResult{}, false
+	}
+
+	// Trava matemática (segurança): BFS a partir da ilha de spawn (islands[0]).
+	visited := make([]bool, len(islands))
+	visited[0] = true
+	queue := []int{0}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for j := range islands {
+			if visited[j] {
+				continue
+			}
+			if canReach(islands[cur], islands[j]) || canReach(islands[j], islands[cur]) {
+				visited[j] = true
+				queue = append(queue, j)
+			}
+		}
+	}
+	for _, v := range visited {
+		if !v {
+			return layoutResult{}, false
+		}
+	}
+
+	return layoutResult{islands: islands, maxCol: maxCol}, true
+}
+
+// materialize converte as ilhas planejadas em tiles com autotile.
+func (gs *GameState) materialize(res layoutResult) {
+	gs.ArenaTiles = make(map[string]*ArenaTile)
+	for _, ip := range res.islands {
+		for k := 0; k < ip.Width; k++ {
+			tr := ip.Bottom - ip.Profile[k] + 1
+			for r := tr; r <= ip.Bottom; r++ {
+				kind := "mid"
+				if r == tr {
+					kind = "top"
+				} else if r == ip.Bottom {
+					kind = "bottom"
+				}
+				gs.addTileKind(r, ip.Col+k, kind)
+			}
+		}
+	}
+}
+
+// computeSpawnPoints gera pontos de spawn acima da superfície da ilha central.
+func (gs *GameState) computeSpawnPoints(sp islandPlan) {
+	top := sp.minTop()
+	gs.SpawnPoints = gs.SpawnPoints[:0]
+	for k := 0; k < sp.Width; k++ {
+		if sp.Bottom-sp.Profile[k]+1 == top {
+			gs.SpawnPoints = append(gs.SpawnPoints, SpawnPoint{
+				X: (float64(sp.Col+k) + 0.5) * TileSize,
+				Y: float64(top)*TileSize - 40,
+			})
+		}
+	}
+}
+
+// fallbackArena é um mapa mínimo determinístico (sempre alcançável), usado se
+// o gerador falhar repetidamente.
+func (gs *GameState) fallbackArena() {
+	gs.ArenaTiles = make(map[string]*ArenaTile)
+	gs.addTileKind(4, 1, "top")
+	gs.addTileKind(5, 1, "bottom")
+	gs.addTileKind(4, 2, "top")
+	gs.addTileKind(5, 2, "bottom")
+	gs.addTileKind(3, 3, "top")
+	gs.addTileKind(4, 3, "mid")
+	gs.addTileKind(5, 3, "bottom")
+	gs.addTileKind(4, 5, "top")
+	gs.addTileKind(5, 5, "bottom")
+	gs.addTileKind(4, 6, "top")
+	gs.addTileKind(5, 6, "bottom")
+	gs.ArenaWidth = 8 * TileSize
+	gs.ArenaHeight = ArenaHeight
+	gs.SpawnPoints = []SpawnPoint{{X: 250, Y: 360}, {X: 350, Y: 360}}
+}
+
+// generateArena reconstrói a arena do zero com ilhas geradas proceduralmente.
+// A cada rodada o mapa muda (posições, quantidades e tamanhos sorteados),
+// respeitando a regra de alcançabilidade e dimensionando a largura da arena.
+func (gs *GameState) generateArena() {
+	for attempt := 0; attempt < LayoutAttempts; attempt++ {
+		res, ok := buildLayout()
+		if !ok {
+			continue
+		}
+		gs.computeSpawnPoints(res.islands[0])
+		gs.materialize(res)
+		gs.ArenaWidth = float64(res.maxCol+EdgeMarginCols+1) * TileSize
+		gs.ArenaHeight = ArenaHeight
+		log.Printf("Arena procedural gerada: %d ilhas, %d tiles, largura %.0fpx.",
+			len(res.islands), len(gs.ArenaTiles), gs.ArenaWidth)
+		return
+	}
+	gs.fallbackArena()
+	log.Printf("Arena procedural falhou após %d tentativas; usado fallback.", LayoutAttempts)
+}
+
+// spawnPosition retorna um ponto de spawn seguro acima da ilha central do
+// mapa atual, rotacionando pelos pontos gerados de acordo com o índice.
+func (gs *GameState) spawnPosition(index int) (float64, float64) {
+	if len(gs.SpawnPoints) == 0 {
 		return 150, 120
 	}
-	return 650, 120
+	p := gs.SpawnPoints[index%len(gs.SpawnPoints)]
+	return p.X, p.Y
 }
 
 func (gs *GameState) AddPlayer(connID string) *Player {
 	// Contador monotônico: evita IDs duplicados quando jogadores saem e entram.
 	gs.nextPlayerID++
 	id := fmt.Sprintf("player_%d", gs.nextPlayerID)
-	x, y := spawnPosition(gs.nextPlayerID)
+	x, y := gs.spawnPosition(gs.nextPlayerID)
 	player := &Player{
 		ID:         id,
 		ConnID:     connID,
@@ -285,7 +560,7 @@ func (gs *GameState) RespawnPlayer(playerID string) {
 		}
 		index++
 	}
-	x, y := spawnPosition(index)
+	x, y := gs.spawnPosition(index)
 	p.X = x
 	p.Y = y
 	p.VelocityX = 0
@@ -312,8 +587,7 @@ func (gs *GameState) RespawnPlayer(playerID string) {
 // iniciando uma nova rodada com vidas cheias.
 func (gs *GameState) ResetRound() {
 	gs.roundGen++
-	gs.ArenaTiles = make(map[string]*ArenaTile)
-	gs.initializeArenaCustom()
+	gs.generateArena()
 	gs.lastBreakTime = time.Now()
 	gs.RoundOver = false
 	gs.Countdown = 0
@@ -458,8 +732,8 @@ func (gs *GameState) ApplyPhysics() {
 			player.X = PlayerRadius
 			player.VelocityX = 0
 		}
-		if player.X >= ArenaWidth-PlayerRadius {
-			player.X = ArenaWidth - PlayerRadius
+		if player.X >= gs.ArenaWidth-PlayerRadius {
+			player.X = gs.ArenaWidth - PlayerRadius
 			player.VelocityX = 0
 		}
 
@@ -530,7 +804,7 @@ func (gs *GameState) ApplyPhysics() {
 		}
 
 		// 6. Queda no abismo (killzone): perde vida ou é eliminado.
-		if player.Y > ArenaHeight+100 {
+		if player.Y > gs.ArenaHeight+100 {
 			if player.Lives > 1 {
 				player.Lives--
 				log.Printf("Jogador %s caiu no abismo. Vidas restantes: %d", player.ID, player.Lives)
