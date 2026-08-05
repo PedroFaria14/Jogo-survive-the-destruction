@@ -5,8 +5,11 @@ import (
 	"game-backend/controller"
 	"game-backend/models"
 	"log"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -15,6 +18,63 @@ import (
 type Config struct {
 	AllowedOrigins string // Origens permitidas no WebSocket, separadas por vírgula
 }
+
+// handshakeLimiter limita tentativas de handshake do WebSocket por IP
+// (janela deslizante), protegendo contra abuso de conexões.
+type handshakeLimiter struct {
+	mu    sync.Mutex
+	perIP map[string][]time.Time
+	max   int
+	win   time.Duration
+}
+
+func newHandshakeLimiter(max int, win time.Duration) *handshakeLimiter {
+	return &handshakeLimiter{
+		perIP: make(map[string][]time.Time),
+		max:   max,
+		win:   win,
+	}
+}
+
+// allow registra a tentativa e retorna se ela pode prosseguir dentro do limite.
+func (l *handshakeLimiter) allow(ip string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	cutoff := now.Add(-l.win)
+	stamps := l.perIP[ip]
+	filtered := stamps[:0]
+	for _, t := range stamps {
+		if t.After(cutoff) {
+			filtered = append(filtered, t)
+		}
+	}
+	if len(filtered) >= l.max {
+		l.perIP[ip] = filtered
+		return false
+	}
+	l.perIP[ip] = append(filtered, now)
+	return true
+}
+
+// clientIP extrai o IP do cliente. Prefere o primeiro hop do X-Forwarded-For
+// (quando atrás do proxy do Render); senão usa o RemoteAddr.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if ip := strings.TrimSpace(parts[0]); ip != "" {
+			return ip
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// wsRateLimiter limita tentativas de conexão do WebSocket por IP.
+var wsRateLimiter = newHandshakeLimiter(20, time.Minute)
 
 // upgrader global é substituído em InitRoutes por newUpgrader com a lista de
 // origens permitidas. O valor inicial usa o comportamento padrão do gorilla
@@ -58,6 +118,7 @@ func parseOrigins(allowed string) map[string]bool {
 // lista usada na validação do WebSocket, evitando duas listas divergentes).
 func withCORS(allowedSet map[string]bool, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		setSecurityHeaders(w)
 		origin := r.Header.Get("Origin")
 		if allowedSet[origin] {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -73,13 +134,36 @@ func withCORS(allowedSet map[string]bool, next http.HandlerFunc) http.HandlerFun
 	}
 }
 
+// setSecurityHeaders aplica headers de hardening às respostas HTTP/WS.
+func setSecurityHeaders(w http.ResponseWriter) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Cache-Control", "no-store")
+}
+
+// MaxConnections permite que o limite global de conexões do WebSocket seja
+// injetado nos testes (serveWs usa hub.ConnCount diretamente).
 func serveWs(hub *controller.Hub, w http.ResponseWriter, r *http.Request) {
+	// Rate limit por IP antes do upgrade (mitiga DoS por handshakes).
+	if !wsRateLimiter.allow(clientIP(r)) {
+		http.Error(w, "Muitas tentativas de conexão. Tente novamente em instantes.", http.StatusTooManyRequests)
+		return
+	}
+	// Limite global de conexões simultâneas.
+	if hub.ConnCount.Load() >= controller.MaxClients {
+		http.Error(w, "Servidor cheio. Tente novamente em instantes.", http.StatusServiceUnavailable)
+		return
+	}
+
+	setSecurityHeaders(w)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Erro ao fazer upgrade para WebSocket:", err)
 		return
 	}
 
+	hub.ConnCount.Add(1)
 	client := &controller.Client{Hub: hub, Conn: conn, Send: make(chan []byte, 256)}
 
 	hub.Register <- client

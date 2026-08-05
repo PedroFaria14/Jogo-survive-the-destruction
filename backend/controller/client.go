@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"game-backend/models" // Necessário para models.Command
 	"log"
+	"runtime/debug"
 	"time"
 
 	"github.com/gorilla/websocket" // Necessário para ReadMessage/WriteMessage
@@ -20,11 +21,15 @@ const (
 // ReadPump lida com as mensagens de entrada do cliente (EXPORTADA)
 func ReadPump(c *Client) {
 	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC capturado em ReadPump (%s): %v\n%s", c.PlayerID, r, debug.Stack())
+		}
 		c.closed.Store(true)
 		// Desregistra o cliente e fecha a conexão quando a função termina.
 		// closeOnce garante que isso aconteça exatamente uma vez (os dois
 		// pumps podem sair em qualquer ordem).
 		c.closeOnce.Do(func() {
+			c.Hub.ConnCount.Add(-1)
 			c.Hub.Unregister <- c
 			c.Conn.Close()
 		})
@@ -68,10 +73,14 @@ func ReadPump(c *Client) {
 func WritePump(c *Client) {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC capturado em WritePump (%s): %v\n%s", c.PlayerID, r, debug.Stack())
+		}
 		ticker.Stop()
 		c.closed.Store(true)
 		// Encerra apenas uma vez, independentemente de qual pump sair primeiro.
 		c.closeOnce.Do(func() {
+			c.Hub.ConnCount.Add(-1)
 			c.Hub.Unregister <- c
 			c.Conn.Close()
 		})

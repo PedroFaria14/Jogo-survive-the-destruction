@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -62,6 +63,89 @@ func TestSpawnLostTileCooldown(t *testing.T) {
 	gs.SpawnLostTile(time.Now())
 	if len(gs.ArenaTiles) != 0 {
 		t.Fatalf("não deveria spawnar antes do timer")
+	}
+}
+
+// TestSpawnLostTileArenaFull garante que, com todas as células ocupadas, o
+// quadrado perdido não é spawnado e o timer é adiado (caminho dos 20 attempts).
+func TestSpawnLostTileArenaFull(t *testing.T) {
+	gs := NewGameState()
+	cols := int(gs.ArenaWidth / TileSize)
+	rows := int(gs.ArenaHeight / TileSize)
+	gs.ArenaTiles = make(map[string]*ArenaTile)
+	for r := 0; r < rows; r++ {
+		for c := 0; c < cols; c++ {
+			id := fmt.Sprintf("tile_%d_%d", r, c)
+			gs.ArenaTiles[id] = &ArenaTile{ID: id, IsActive: true}
+		}
+	}
+	gs.nextLostTileAt = time.Now().Add(-time.Second)
+
+	gs.SpawnLostTile(time.Now())
+
+	if len(gs.ArenaTiles) != rows*cols {
+		t.Fatalf("deveria manter todas as células: %d != %d", len(gs.ArenaTiles), rows*cols)
+	}
+	for _, tile := range gs.ArenaTiles {
+		if tile.Kind == "lost" {
+			t.Fatal("quadrado perdido não deveria ser spawnado com arena cheia")
+		}
+	}
+	if !gs.nextLostTileAt.After(time.Now()) {
+		t.Fatal("timer do quadrado perdido não foi adiado após falha")
+	}
+}
+
+// TestResetRound garante que o reinício incrementa a rodada, restaura vidas
+// cheias, limpa morte e zera o placar.
+func TestResetRound(t *testing.T) {
+	gs := NewGameState()
+	p := gs.AddPlayer("conn1")
+	p.Lives = 1
+	p.Score = 99
+	p.IsDead = true
+	roundBefore := gs.Round
+
+	gs.ResetRound()
+
+	if gs.Round != roundBefore+1 {
+		t.Fatalf("Round = %d, esperado %d", gs.Round, roundBefore+1)
+	}
+	if p.Lives != MaxLives {
+		t.Fatalf("Lives = %d, esperado %d", p.Lives, MaxLives)
+	}
+	if p.IsDead {
+		t.Fatal("jogador deveria estar vivo após reset")
+	}
+	if p.Score != 0 {
+		t.Fatalf("Score = %d, esperado 0", p.Score)
+	}
+	if gs.RoundOver {
+		t.Fatal("RoundOver deveria ser false após reset")
+	}
+	if gs.Status != "playing" {
+		t.Fatalf("Status = %q, esperado playing", gs.Status)
+	}
+}
+
+// TestKillzoneFinalDeath garante que a queda com a última vida elimina o
+// jogador (IsDead) sem consumir mais vidas.
+func TestKillzoneFinalDeath(t *testing.T) {
+	gs := NewGameState()
+	p := gs.AddPlayer("conn1")
+	p.Lives = 1
+	p.X = gs.ArenaWidth / 2
+	p.Y = gs.ArenaHeight + 150 // além da killzone
+	p.VelocityX, p.VelocityY = 0, 0
+	p.IsOnGround = false
+
+	gs.ApplyPhysics()
+
+	if !p.IsDead {
+		t.Fatal("jogador deveria morrer com a última vida")
+	}
+	if p.Lives != 1 {
+		t.Fatalf("Lives = %d, esperado 1 (sem vidas negativas)", p.Lives)
 	}
 }
 

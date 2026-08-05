@@ -6,8 +6,11 @@ services:
     buildCommand: go build -o server .
     startCommand: ./server
     envVars:
+      # DATABASE_URL é um secret gerenciado: defina-o no painel do Render
+      # (Service > Environment) e não versionado no repositório. O valor abaixo
+      # força a configuração manual (sync: false), evitando vazamento de secrets.
       - key: DATABASE_URL
-        value: postgresql://neondb_owner:SUA_SENHA_ROTACIONE_NO_NEON@ep-withered-fire-axsj71df-pooler.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+        sync: false
       - key: ALLOWED_ORIGINS
         value: https://jogo-survive-the-destruction.vercel.app
       - key: HTTP_ADDR

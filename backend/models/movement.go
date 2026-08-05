@@ -4,16 +4,11 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"time"
 )
-
-// rng é uma fonte randômica local (rng.Seed não é chamado), seguro para uso
-// pelo processo. O uso de rand.New + rand.NewSource evita o uso de rand.Seed
-// global (deprecado desde Go 1.20).
-var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 // --- CONSTANTES DE JOGO (DEVE SER AS MESMAS DO FRONTEND) ---
 const (
@@ -161,6 +156,9 @@ type Player struct {
 	VelocityX  float64 `json:"vx"`
 	VelocityY  float64 `json:"vy"`
 	IsOnGround bool    `json:"on_ground"`
+	// SpawnIndex é o índice de spawn fixado na criação do jogador. Mantê-lo
+	// evita que o respawn dependa da ordem (aleatória) de iteração do mapa.
+	SpawnIndex int `json:"-"`
 	// Campos de Placar
 	IsDead     bool      `json:"is_dead"`
 	Score      int       `json:"score"` // Placar em segundos
@@ -350,7 +348,7 @@ func canReach(a, b islandPlan) bool {
 // que todas são alcançáveis a partir do spawn. Um BFS final é mantido como
 // trava de segurança ("regra de ouro").
 func buildLayout() (layoutResult, bool) {
-	n := MinIslands + rng.Intn(MaxIslands-MinIslands+1)
+	n := MinIslands + rand.IntN(MaxIslands-MinIslands+1)
 	occupied := map[string]bool{}
 	islands := []islandPlan{}
 	maxCol := 0
@@ -400,8 +398,8 @@ func buildLayout() (layoutResult, bool) {
 			if side == 1 {
 				last = lastRight
 			}
-			gap := 1 + rng.Intn(MaxGapCols)
-			width := IslandWidthMin + rng.Intn(IslandWidthMax-IslandWidthMin+1)
+			gap := 1 + rand.IntN(MaxGapCols)
+			width := IslandWidthMin + rand.IntN(IslandWidthMax-IslandWidthMin+1)
 			col := left - gap - width + 1
 			if side == 1 {
 				col = right + gap
@@ -426,11 +424,11 @@ func buildLayout() (layoutResult, bool) {
 				continue
 			}
 			// Alturas candidatas da base (bottom) da ilha, do alto (1) ao
-			// baixo (6). A ordem é sorteada a cada colocação (Fisher-Yates via
-			// rng.Perm) para garantir variedade vertical — ilhas altas, médias
-			// e baixas — respeitando a regra de alcançabilidade (canReach).
+			// baixo (6). A ordem é sorteada a cada colocação (rand.Perm) para
+			// garantir variedade vertical — ilhas altas, médias e baixas —
+			// respeitando a regra de alcançabilidade (canReach).
 			bottomCandidates := []int{1, 2, 3, 4, 5, 6}
-			for _, idx := range rng.Perm(len(bottomCandidates)) {
+			for _, idx := range rand.Perm(len(bottomCandidates)) {
 				bottom := bottomCandidates[idx]
 				ip := islandPlan{Col: col, Width: width, Profile: islandProfile(width), Bottom: bottom}
 				if !canReach(last, ip) {
@@ -588,6 +586,7 @@ func (gs *GameState) AddPlayer(connID string) *Player {
 		Lives:      MaxLives,
 		StartTime:  time.Now(),
 		JumpsUsed:  0,
+		SpawnIndex: gs.nextPlayerID,
 	}
 	gs.Players[id] = player
 	log.Printf("Jogador %s adicionado na posição (%.2f, %.2f)", id, player.X, player.Y)
@@ -623,14 +622,7 @@ func (gs *GameState) respawnPlayer(playerID string, resetScore bool) {
 	if !ok {
 		return
 	}
-	index := 0
-	for _, other := range gs.Players {
-		if other.ID == playerID {
-			break
-		}
-		index++
-	}
-	x, y := gs.spawnPosition(index)
+	x, y := gs.spawnPosition(p.SpawnIndex)
 	p.X = x
 	p.Y = y
 	p.VelocityX = 0
@@ -1017,7 +1009,7 @@ func (gs *GameState) CheckArenaDestruction() {
 		return
 	}
 
-	tile := activeTiles[rng.Intn(len(activeTiles))]
+	tile := activeTiles[rand.IntN(len(activeTiles))]
 	tile.IsFalling = true
 	tile.FallAt = now.Add(FallDelay) // Tempo que o tile fica vermelho antes de cair
 	gs.lastBreakTime = now
@@ -1054,8 +1046,8 @@ func (gs *GameState) SpawnLostTile(now time.Time) {
 	}
 
 	for attempt := 0; attempt < 20; attempt++ {
-		r := rng.Intn(rows)
-		c := rng.Intn(cols)
+		r := rand.IntN(rows)
+		c := rand.IntN(cols)
 		id := fmt.Sprintf("tile_%d_%d", r, c)
 		if _, exists := gs.ArenaTiles[id]; exists {
 			continue
@@ -1068,7 +1060,7 @@ func (gs *GameState) SpawnLostTile(now time.Time) {
 			Kind:      "lost",
 		}
 		interval := LostTileIntervalMin.Seconds() +
-			rng.Float64()*(LostTileIntervalMax-LostTileIntervalMin).Seconds()
+			rand.Float64()*(LostTileIntervalMax-LostTileIntervalMin).Seconds()
 		gs.nextLostTileAt = now.Add(time.Duration(interval * float64(time.Second)))
 		log.Printf("Quadrado perdido apareceu em %s", id)
 		return

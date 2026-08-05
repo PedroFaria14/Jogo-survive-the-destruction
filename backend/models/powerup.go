@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/rand/v2"
 	"time"
 )
 
@@ -193,12 +194,12 @@ func (gs *GameState) spawnPowerUp(now time.Time) {
 		return
 	}
 
-	tile := topTiles[rng.Intn(len(topTiles))]
+	tile := topTiles[rand.IntN(len(topTiles))]
 	gs.nextPowerUpID++
 	id := fmt.Sprintf("powerup_%d", gs.nextPowerUpID)
 	gs.PowerUps[id] = &PowerUp{
 		ID:      id,
-		Type:    powerUpTypes[rng.Intn(len(powerUpTypes))],
+		Type:    powerUpTypes[rand.IntN(len(powerUpTypes))],
 		X:       tile.X + TileSize/2,
 		Y:       tile.Y - DropRadius - 60,
 		SpawnAt: now,

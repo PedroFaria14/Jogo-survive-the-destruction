@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -11,7 +12,7 @@ import (
 
 // Score representa um registro de placar para exibição
 type Score struct {
-	PlayerID string `json:"player_id"`
+	PlayerID string `json:"-"` // ID interno; não exposto publicamente
 	Name     string `json:"name"`
 	ScoreSec int    `json:"score_seconds"`
 }
@@ -56,6 +57,12 @@ func NewPostgresScoreService(connStr string) (ScoreService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("erro ao abrir conexão com o DB: %w", err)
 	}
+
+	// Limites do pool: o Neon free tier tem ~20 conexões máximas. Configurar
+	// tetos explícitos evita estourar o limite sob picos e goroutines de save.
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(30 * time.Minute)
 
 	if err = db.Ping(); err != nil {
 		db.Close()
@@ -106,19 +113,23 @@ func (s *PostgresScoreService) GetTopScores() ([]Score, error) {
 	return scores, nil
 }
 
-// SaveScore salva o placar final do jogador no banco de dados.
+// SaveScore salva o placar final do jogador no banco de dados, com timeout
+// de contexto e uma única tentativa de retry em caso de falha transitória.
 func (s *PostgresScoreService) SaveScore(playerID, playerName string, scoreSeconds int, duration time.Duration) error {
 	durationMs := duration.Milliseconds()
 
 	// Prepara a query de inserção.
 	query := `INSERT INTO scores (player_id, player_name, score_seconds, duration_ms) VALUES ($1, $2, $3, $4)`
 
-	// Executa a inserção.
-	_, err := s.DB.Exec(query, playerID, playerName, scoreSeconds, durationMs)
-	if err != nil {
-		return fmt.Errorf("erro ao salvar placar para %s: %w", playerID, err)
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err = s.DB.ExecContext(ctx, query, playerID, playerName, scoreSeconds, durationMs)
+		cancel()
+		if err == nil {
+			log.Printf("Placar salvo: %s, Score: %d segundos", playerName, scoreSeconds)
+			return nil
+		}
 	}
-
-	log.Printf("Placar salvo: %s, Score: %d segundos", playerName, scoreSeconds)
-	return nil
+	return fmt.Errorf("erro ao salvar placar para %s: %w", playerID, err)
 }
