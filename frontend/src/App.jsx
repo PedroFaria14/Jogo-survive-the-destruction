@@ -54,7 +54,7 @@ const DEFAULT_CFG = {
   max_islands: 7,
   island_width_min: 1,
   island_width_max: 6,
-  max_gap_cols: 2,
+  max_gap_cols: 3,
   powerup_interval: 4,
   powerup_lifetime: 6,
   red_duration: 8,
@@ -843,6 +843,9 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (isTypingTarget(e)) return;
+      // Não processa teclas de gameplay antes de o jogo iniciar (evita que
+      // Espaço na tela inicial dispare pulo/som e seta double-start).
+      if (!startedRef.current) return;
       const k = e.key.toLowerCase();
 
       // Bloqueia o comportamento padrão ANTES do auto-repeat (segurar a tecla
@@ -966,6 +969,20 @@ export default function App() {
             color: ballColorRef.current,
           })
         );
+        // Reconexão: reenvia o estado atual de input para que teclas seguradas
+        // continuem funcionando sem o jogador precisar soltar/repressionar.
+        const k = keysRef.current;
+        if (k.left || k.right || k.jump || k.dash) {
+          ws.send(
+            JSON.stringify({
+              type: 'input',
+              left: k.left,
+              right: k.right,
+              jump: k.jump,
+              dash: k.dash,
+            })
+          );
+        }
       };
 
       ws.onmessage = (event) => {
@@ -2123,6 +2140,7 @@ export default function App() {
                         onPointerDown={touchPress('left')}
                         onPointerUp={touchRelease('left')}
                         onPointerLeave={touchRelease('left')}
+                        onPointerCancel={touchRelease('left')}
                       >
                         ◀
                       </Button>
@@ -2136,6 +2154,7 @@ export default function App() {
                         onPointerDown={touchPress('right')}
                         onPointerUp={touchRelease('right')}
                         onPointerLeave={touchRelease('right')}
+                        onPointerCancel={touchRelease('right')}
                       >
                         ▶
                       </Button>
@@ -2151,6 +2170,7 @@ export default function App() {
                         onPointerDown={touchPress('jump')}
                         onPointerUp={touchRelease('jump')}
                         onPointerLeave={touchRelease('jump')}
+                        onPointerCancel={touchRelease('jump')}
                       >
                         ⬆
                       </Button>
@@ -2164,6 +2184,7 @@ export default function App() {
                         onPointerDown={touchPress('dash')}
                         onPointerUp={touchRelease('dash')}
                         onPointerLeave={touchRelease('dash')}
+                        onPointerCancel={touchRelease('dash')}
                       >
                         ⚡
                       </Button>
