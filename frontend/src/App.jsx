@@ -12,7 +12,6 @@ import {
   Chip,
 } from '@mui/material';
 
-import './App.css';
 import { sfx } from './sfx.js';
 
 // =======================

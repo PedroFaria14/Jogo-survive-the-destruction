@@ -150,7 +150,6 @@ type Player struct {
 	VelocityX  float64 `json:"vx"`
 	VelocityY  float64 `json:"vy"`
 	IsOnGround bool    `json:"on_ground"`
-	Health     int     `json:"health"`
 	// Campos de Placar
 	IsDead     bool      `json:"is_dead"`
 	Score      int       `json:"score"` // Placar em segundos
@@ -557,7 +556,6 @@ func (gs *GameState) AddPlayer(connID string) *Player {
 		VelocityX:  0,
 		VelocityY:  0,
 		IsOnGround: false,
-		Health:     100,
 		IsDead:     false,
 		Score:      0,
 		Lives:      MaxLives,
@@ -579,7 +577,21 @@ func (gs *GameState) RemovePlayer(playerID string) {
 // RespawnPlayer reinicia o jogador na mesma arena (mesmo mapa), mantendo o ID
 // para que o cliente continue identificado. Preserva o campo Lives (quem
 // chama decide se deve zerar as vidas — ex.: ResetRound ou comando restart).
+// A pontuação é zerada: representa "perda de vida" (killzone) ou início de
+// rodada. Use RespawnPlayerKeepScore para teleportes que não são morte
+// (ex.: anti-trava), onde o tempo sobrevivido deve ser preservado.
 func (gs *GameState) RespawnPlayer(playerID string) {
+	gs.respawnPlayer(playerID, true)
+}
+
+// RespawnPlayerKeepScore teleporta o jogador preservando Score e StartTime.
+// Usado pelo anti-trava: o jogador não perdeu vida, então não deve perder o
+// tempo acumulado de sobrevivência.
+func (gs *GameState) RespawnPlayerKeepScore(playerID string) {
+	gs.respawnPlayer(playerID, false)
+}
+
+func (gs *GameState) respawnPlayer(playerID string, resetScore bool) {
 	p, ok := gs.Players[playerID]
 	if !ok {
 		return
@@ -597,11 +609,12 @@ func (gs *GameState) RespawnPlayer(playerID string) {
 	p.VelocityX = 0
 	p.VelocityY = 0
 	p.IsOnGround = false
-	p.Health = 100
 	p.IsDead = false
-	p.Score = 0
+	if resetScore {
+		p.Score = 0
+		p.StartTime = time.Now()
+	}
 	p.ScoreSaved = false
-	p.StartTime = time.Now()
 	p.lastGroundedAt = time.Time{}
 	p.jumpBufferedAt = time.Time{}
 	p.JumpsUsed = 0
@@ -834,7 +847,8 @@ func (gs *GameState) ApplyPhysics() {
 			} else if player.stuckSince.IsZero() {
 				player.stuckSince = now
 			} else if now.Sub(player.stuckSince) > StuckTimeout {
-				gs.RespawnPlayer(player.ID)
+				// Teleporte anti-trava NÃO é morte: preserva Score/StartTime.
+				gs.RespawnPlayerKeepScore(player.ID)
 				continue
 			}
 		} else {
