@@ -13,7 +13,15 @@ import {
 } from '@mui/material';
 
 import { sfx } from './sfx.js';
-import carregamentoImg from '../assets/carregamento.jpeg';
+
+// Telas de carregamento sorteadas: carrega automaticamente qualquer imagem
+// com prefixo "carregamento" em frontend/assets/ (sem mexer no código).
+const loadingImages = Object.values(
+  import.meta.glob('../assets/carregamento*.jpeg', {
+    eager: true,
+    import: 'default',
+  })
+);
 
 // =======================
 // Configurações
@@ -520,6 +528,10 @@ export default function App() {
   const [bestScore, setBestScore] = useState(0);
   const [isTouch, setIsTouch] = useState(false);
   const [backendStatus, setBackendStatus] = useState('checking');
+  // Sorteio de uma tela de carregamento por visita.
+  const [carregamentoImg] = useState(
+    () => loadingImages[Math.floor(Math.random() * loadingImages.length)]
+  );
 
   // O estado do jogo (60 FPS) é guardado em ref e desenhado no canvas via
   // requestAnimationFrame. A UI (overlays/sidebar) usa um snapshot `ui`
