@@ -5,6 +5,8 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -145,6 +147,7 @@ type Player struct {
 	ID         string  `json:"id"`
 	ConnID     string  `json:"conn_id"`
 	Name       string  `json:"name"`
+	Color      string  `json:"color"` // Hex #RRGGBB da bolinha ("" = cor padrão)
 	X          float64 `json:"x"`
 	Y          float64 `json:"y"`
 	VelocityX  float64 `json:"vx"`
@@ -212,10 +215,24 @@ type SpawnPoint struct {
 type Command struct {
 	Type  string `json:"type"`
 	Name  string `json:"name"`
+	Color string `json:"color"`
 	Right bool   `json:"right"`
 	Left  bool   `json:"left"`
 	Jump  bool   `json:"jump"`
 	Dash  bool   `json:"dash"`
+}
+
+// SanitizeColor valida uma cor de bolinha enviada pelo cliente. Aceita apenas
+// o formato "#RRGGBB" (hex). Retorna "" (cor padrão no frontend) se inválida.
+func SanitizeColor(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) != 7 || s[0] != '#' {
+		return ""
+	}
+	if _, err := strconv.ParseUint(s[1:], 16, 32); err != nil {
+		return ""
+	}
+	return strings.ToLower(s)
 }
 
 func NewGameState() *GameState {

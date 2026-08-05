@@ -135,6 +135,48 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+// Converte "#rrggbb" para {r, g, b} (ou null se inválido).
+function hexToRgb(hex) {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex || '');
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+
+// Escurece/clareia um hex por fator (1 = mantém, <1 escurece, >1 clareia).
+function shadeHex(hex, f) {
+  const c = hexToRgb(hex);
+  if (!c) return hex;
+  const to = (v) => Math.round(Math.min(255, Math.max(0, v * f)));
+  return `rgb(${to(c.r)}, ${to(c.g)}, ${to(c.b)})`;
+}
+
+// Monta a paleta visual da bolinha a partir da cor base escolhida pelo jogador.
+// Cor inválida/vazia (ex.: servidor antigo) usa o âmbar padrão.
+function ballPalette(hex) {
+  const c = hexToRgb(hex);
+  if (!c) {
+    return {
+      base: PALETTE.ballMid,
+      light: PALETTE.ballHi,
+      dark: PALETTE.ballDark,
+      marker: PALETTE.ballMarker,
+      outline: PALETTE.ballOutline,
+      trail: PALETTE.trailRGB,
+      glow: PALETTE.ballGlow,
+    };
+  }
+  return {
+    base: hex,
+    light: shadeHex(hex, 1.5),
+    dark: shadeHex(hex, 0.6),
+    marker: shadeHex(hex, 0.35),
+    outline: `rgba(${c.r}, ${c.g}, ${c.b}, 0.6)`,
+    trail: `${c.r},${c.g},${c.b}`,
+    glow: hex,
+  };
+}
+
 // Hash determinístico por posição (define quais blocos ganham árvore).
 function tileHash(x, y) {
   let h = 17;
@@ -299,6 +341,8 @@ function drawPowerUpDrop(ctx, pu, now) {
 // Desenho da bola (animado)
 // =======================
 function drawPlayerBall(ctx, player, anim, now, dt, radius, buff) {
+  // Paleta da bolinha a partir da cor escolhida pelo jogador.
+  const pal = ballPalette(player.color);
   // Cores e glow do rastro conforme o buff ativo.
   const trailColor =
     buff === 'red_mushroom'
@@ -307,7 +351,7 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius, buff) {
         ? PALETTE.purpleMushTop
         : buff === 'blue_crystal'
           ? PALETTE.crystalMid
-          : PALETTE.trailRGB;
+          : pal.trail;
   const glowColor =
     buff === 'red_mushroom'
       ? PALETTE.redMushDark
@@ -315,7 +359,7 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius, buff) {
         ? PALETTE.purpleMushDark
         : buff === 'blue_crystal'
           ? PALETTE.crystalLight
-          : PALETTE.ballGlow;
+          : pal.glow;
 
   // Trilha/trail
   anim.trail.push({ x: player.x, y: player.y });
@@ -378,9 +422,9 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius, buff) {
   }
 
   const grad = ctx.createRadialGradient(-6, -6, 4, 0, 0, radius);
-  grad.addColorStop(0, PALETTE.ballHi);
-  grad.addColorStop(0.55, PALETTE.ballMid);
-  grad.addColorStop(1, PALETTE.ballDark);
+  grad.addColorStop(0, pal.light);
+  grad.addColorStop(0.55, pal.base);
+  grad.addColorStop(1, pal.dark);
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.arc(0, 0, radius, 0, Math.PI * 2);
@@ -390,14 +434,14 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius, buff) {
   // Marcador de rotação
   ctx.save();
   ctx.rotate(anim.rotation);
-  ctx.fillStyle = PALETTE.ballMarker;
+  ctx.fillStyle = pal.marker;
   ctx.beginPath();
   ctx.arc(radius * 0.55, 0, 4.5, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 
   // Contorno
-  ctx.strokeStyle = PALETTE.ballOutline;
+  ctx.strokeStyle = pal.outline;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.arc(0, 0, radius, 0, Math.PI * 2);
@@ -419,13 +463,16 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius, buff) {
   ctx.restore();
 }
 
-// Jogador morto: "fantasma" translúcido (modo espectador)
+// Jogador morto: "fantasma" translúcido (modo espectador) na cor do jogador.
 function drawGhost(ctx, player, radius) {
-  ctx.fillStyle = PALETTE.ghostFill;
+  const c = hexToRgb(player.color);
+  const fill = c ? `rgba(${c.r}, ${c.g}, ${c.b}, 0.18)` : PALETTE.ghostFill;
+  const stroke = c ? `rgba(${c.r}, ${c.g}, ${c.b}, 0.4)` : PALETTE.ghostStroke;
+  ctx.fillStyle = fill;
   ctx.beginPath();
   ctx.arc(player.x, player.y, radius, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = PALETTE.ghostStroke;
+  ctx.strokeStyle = stroke;
   ctx.lineWidth = 1.5;
   ctx.setLineDash([5, 5]);
   ctx.beginPath();
@@ -525,6 +572,9 @@ export default function App() {
   const [nickname, setNickname] = useState(
     () => `Jogador${Math.floor(1000 + Math.random() * 9000)}`
   );
+  const [ballColor, setBallColor] = useState(
+    () => localStorage.getItem('ballColor') || '#f2b544'
+  );
   const [bestScore, setBestScore] = useState(0);
   const [isTouch, setIsTouch] = useState(false);
   const [backendStatus, setBackendStatus] = useState('checking');
@@ -571,6 +621,7 @@ export default function App() {
   const canvasRef = useRef(null);
   const startedRef = useRef(false);
   const nicknameRef = useRef(nickname);
+  const ballColorRef = useRef(ballColor);
   const myPlayerIdRef = useRef(null);
   const keysRef = useRef({ left: false, right: false, jump: false, dash: false });
   const animsRef = useRef({});
@@ -716,6 +767,11 @@ export default function App() {
   }, [nickname]);
 
   useEffect(() => {
+    ballColorRef.current = ballColor;
+    localStorage.setItem('ballColor', ballColor);
+  }, [ballColor]);
+
+  useEffect(() => {
     myPlayerIdRef.current = myPlayerId;
   }, [myPlayerId]);
 
@@ -845,7 +901,13 @@ export default function App() {
         attempts = 0;
         console.log('🟢 WebSocket conectado');
         sfx.unlock();
-        ws.send(JSON.stringify({ type: 'join', name: nicknameRef.current }));
+        ws.send(
+          JSON.stringify({
+            type: 'join',
+            name: nicknameRef.current,
+            color: ballColorRef.current,
+          })
+        );
       };
 
       ws.onmessage = (event) => {
@@ -1554,6 +1616,35 @@ export default function App() {
                     size="small"
                     sx={{ width: 260, bgcolor: 'rgba(255,255,255,0.6)', borderRadius: 2 }}
                   />
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.5,
+                      bgcolor: 'rgba(255,255,255,0.6)',
+                      borderRadius: 2,
+                      px: 1.5,
+                      py: 0.75,
+                    }}
+                  >
+                    <Typography variant="body2" color={PALETTE.textSoft}>
+                      Cor da bolinha:
+                    </Typography>
+                    <input
+                      type="color"
+                      value={ballColor}
+                      onChange={(e) => setBallColor(e.target.value)}
+                      aria-label="Cor da bolinha"
+                      style={{
+                        width: 44,
+                        height: 44,
+                        padding: 0,
+                        border: 'none',
+                        background: 'none',
+                        cursor: 'pointer',
+                      }}
+                    />
+                  </Box>
                   <Button
                     variant="contained"
                     size="large"

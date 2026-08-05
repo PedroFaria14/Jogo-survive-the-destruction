@@ -232,15 +232,17 @@ func (h *Hub) Run() {
 			log.Printf("Cliente desconectado. Total de clientes: %d", len(h.Clients))
 
 		case playerCmd := <-h.Command:
-			// Comando de join: define o nickname do jogador (sanitizado).
+			// Comando de join: define o nickname (sanitizado) e a cor da bolinha.
 			if playerCmd.Cmd.Type == "join" {
 				name := []rune(strings.TrimSpace(playerCmd.Cmd.Name))
 				if len(name) > 20 {
 					name = name[:20]
 				}
+				color := models.SanitizeColor(playerCmd.Cmd.Color)
 				if p := h.GameState.Players[playerCmd.PlayerID]; p != nil {
 					p.Name = string(name)
-					log.Printf("Jogador %s definiu o nome: %q", playerCmd.PlayerID, string(name))
+					p.Color = color
+					log.Printf("Jogador %s definiu o nome: %q e cor: %q", playerCmd.PlayerID, string(name), color)
 				}
 				continue
 			}

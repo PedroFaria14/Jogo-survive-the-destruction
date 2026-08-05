@@ -11,6 +11,27 @@ func makeIsland(col, width, bottom int) islandPlan {
 	return islandPlan{Col: col, Width: width, Profile: islandProfile(width), Bottom: bottom}
 }
 
+func TestSanitizeColor(t *testing.T) {
+	cases := []struct {
+		name  string
+		in    string
+		want  string
+	}{
+		{name: "hex minúsculo válido", in: "#ff6b5e", want: "#ff6b5e"},
+		{name: "hex maiúsculo vira minúsculo", in: "#FF6B5E", want: "#ff6b5e"},
+		{name: "hex com espaços é aceito", in: "  #f2b544 ", want: "#f2b544"},
+		{name: "sem #", in: "f2b544", want: ""},
+		{name: "comprimento inválido", in: "#f2b54", want: ""},
+		{name: "caracteres não hex", in: "#gggggg", want: ""},
+		{name: "vazio", in: "", want: ""},
+	}
+	for _, c := range cases {
+		if got := SanitizeColor(c.in); got != c.want {
+			t.Errorf("SanitizeColor(%q) = %q, esperado %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestIslandProfile(t *testing.T) {
 	got := islandProfile(5)
 	want := []int{1, 2, 3, 2, 1}
