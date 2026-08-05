@@ -1455,7 +1455,7 @@ export default function App() {
                 height: '100%',
                 borderRadius: 4,
                 overflow: 'hidden',
-                border: `2px solid ${PALETTE.borderSoft}`,
+                border: isTouch && gameStarted ? 'none' : `2px solid ${PALETTE.borderSoft}`,
                 bgcolor: PALETTE.skyTop,
                 boxShadow: '0 18px 40px rgba(90,70,40,0.18)',
               }}
