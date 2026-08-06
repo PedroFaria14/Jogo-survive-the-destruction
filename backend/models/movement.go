@@ -25,6 +25,17 @@ const (
 	Friction           = 0.85
 	AirResistance      = 0.98
 
+	// Game feel do pulo: gravidade assimétrica. Subir é mais leve/controlado
+	// (menos "flutuante"), cair é mais rápido (queda snappy). O pulo duplo
+	// ganha um impulso um pouco maior para escalar ilhas altas com margem.
+	JumpGravityScale = 0.92 // Multiplicador da gravidade enquanto sobe (vy < 0, tecla solta)
+	FallGravityScale = 1.35 // Multiplicador da gravidade enquanto cai (vy > 0)
+	DoubleJumpForce  = 21.5 // Impulso do pulo duplo (maior que o primeiro pulo)
+
+	// Controle no chão: aceleração em vez de velocidade instantânea. Dá peso à
+	// bolinha ao girar (sobe a velocidade gradualmente até o MoveSpeed).
+	GroundAccel = 1.2 // Delta de velocidade por tick ao acelerar no chão
+
 	// Polimento de controle
 	CoyoteTime = 120 * time.Millisecond // Janela para pular após sair da borda
 	JumpBuffer = 120 * time.Millisecond // Janela para pular após pressionar antes de pousar
@@ -750,7 +761,7 @@ func (gs *GameState) ApplyPhysics() {
 				player.JumpsUsed = 0
 			} else if player.JumpsUsed < MaxAirJumps {
 				// Pulo duplo: permite um pulo extra no ar para sair de buracos.
-				player.VelocityY = -JumpForce
+				player.VelocityY = -DoubleJumpForce
 				player.JumpsUsed++
 				player.jumpBufferedAt = time.Time{}
 			}
@@ -760,7 +771,17 @@ func (gs *GameState) ApplyPhysics() {
 		if player.dashing(now) {
 			// Rajada do dash: mantém a velocidade do dash sem recontrole
 			// direcional nem resistência do ar durante a janela ativa.
+		} else if player.IsOnGround && (player.LeftHeld || player.RightHeld) {
+			// No chão: aceleração gradual até MoveSpeed (peso/giração suave).
+			target := 0.0
+			if player.RightHeld {
+				target = speed
+			} else if player.LeftHeld {
+				target = -speed
+			}
+			player.VelocityX = approach(player.VelocityX, target, GroundAccel)
 		} else if player.LeftHeld {
+			// No ar: controle direto (mais direcional para ajustes no pulo).
 			player.VelocityX = -speed
 		} else if player.RightHeld {
 			player.VelocityX = speed
@@ -810,11 +831,18 @@ func (gs *GameState) ApplyPhysics() {
 
 		// --- 4. Tentar Atualizar Posição Y e Checar Colisão Vertical ---
 
-		// Aplica a gravidade e o movimento vertical
+		// Aplica a gravidade e o movimento vertical. Gravidade assimétrica:
+		// subindo é mais leve (pulo variável reduz mais enquanto segura a
+		// tecla), caindo é mais rápido — queda snappy e menos flutuosa.
 		g := Gravity * player.gravityScale()
-		if player.JumpHeld && player.VelocityY < 0 {
-			// Pulo variável: segurar a tecla reduz a gravidade ao subir.
-			g = Gravity * VariableJumpFactor * player.gravityScale()
+		if player.VelocityY < 0 {
+			if player.JumpHeld {
+				g = Gravity * VariableJumpFactor * player.gravityScale()
+			} else {
+				g = Gravity * JumpGravityScale * player.gravityScale()
+			}
+		} else if player.VelocityY > 0 {
+			g = Gravity * FallGravityScale * player.gravityScale()
 		}
 		player.VelocityY += g
 		player.Y += player.VelocityY
@@ -897,6 +925,15 @@ func (gs *GameState) ApplyPhysics() {
 		}
 	}
 	gs.resolvePlayerCollisions(now)
+}
+
+// approach move o valor atual em direção ao alvo pelo passo máximo delta,
+// respeitando o teto (função de aceleração usada no controle do chão).
+func approach(current, target, delta float64) float64 {
+	if current < target {
+		return math.Min(target, current+delta)
+	}
+	return math.Max(target, current-delta)
 }
 
 // clampSpeed limita o módulo da velocidade do jogador (evita voar para fora).
