@@ -65,7 +65,7 @@ Abra `http://localhost:5173`.
 3. Acesse a tela inicial, escolha o nome e a cor da bolinha.
 4. Clique em **INICIAR JOGO** e sobreviva à destruição.
 
-No celular, o jogo trava em **paisagem** e oferece controles de toque na tela.
+No celular, o jogo trava em **paisagem** e oferece controles de toque na tela. A orientação em paisagem também é aplicada à tela de carregamento, com aviso de rotação se o aparelho estiver em retrato.
 
 ## Variáveis de Ambiente
 
@@ -111,6 +111,8 @@ npm run preview        # serve o build localmente
 - **Física polida**: pulo duplo, coyote time, jump buffer, dash com knockback, anti-trava.
 - **Vidas e rodadas**: 3 vidas por rodada, placar por tempo, Top 10.
 - **Mobile**: paisagem, tela cheia, toque, safe-area e telas de carregamento sorteadas.
+- **Tela de carregamento em tela cheia**: fundo integral + spinner + "Procurando partida...".
+- **Health check**: a tela de carregamento só sai quando `/api/health` confirma que o backend ligou (auto-retry ~4s, erro após 5 min).
 
 ## Estrutura
 
@@ -130,7 +132,8 @@ frontend/
 
 ## Observações
 
-- A física roda **no servidor**; o frontend só renderiza. Todos os jogadores ficam sincronizados.
+- A física roda **no servidor**; o frontend só renderiza a posição autoritativa. Todos os jogadores ficam sincronizados.
+- O front aguenta o **cold start do Render**: fica consultando `/api/health` até o servidor responder, então carrega `/api/config` e inicia.
 - Cores duplicadas de bolinha são possíveis (escolha livre de cada jogador).
 - Com a destruição a cada 3s, o jogo é mais frenético que a versão anterior (era 5s).
 - Adicionar novas telas de carregamento é só colocar arquivos com prefixo `carregamento*` em `frontend/assets/` — elas entram no sorteio automaticamente.
