@@ -4,6 +4,8 @@
 export const STRINGS = {
   pt: {
     'loading.checking': 'Carregando jogo...',
+    'loading.searching': 'Procurando partida...',
+    'loading.rotate': 'Gire o celular para o modo paisagem ↗',
     'loading.errorTitle': 'Não foi possível conectar ao servidor',
     'loading.errorMsg': 'Verifique sua conexão e tente novamente.',
     'loading.retry': 'TENTAR NOVAMENTE',
@@ -49,6 +51,8 @@ export const STRINGS = {
   },
   en: {
     'loading.checking': 'Loading game...',
+    'loading.searching': 'Searching for a match...',
+    'loading.rotate': 'Rotate your phone to landscape ↗',
     'loading.errorTitle': 'Could not connect to the server',
     'loading.errorMsg': 'Check your connection and try again.',
     'loading.retry': 'TRY AGAIN',

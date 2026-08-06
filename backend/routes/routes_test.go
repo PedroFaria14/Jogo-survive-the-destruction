@@ -1,6 +1,9 @@
 package routes
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -36,5 +39,22 @@ func TestHandshakeLimiterJanelaExpira(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 	if !l.allow("9.9.9.9") {
 		t.Fatal("após expirar a janela, deveria ser permitido novamente")
+	}
+}
+
+// TestHealthHandler garante que /api/health responde 200 com {"status":"ok"},
+// sinalizando ao front que o servidor ligou (remove a tela de carregamento).
+func TestHealthHandler(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	rec := httptest.NewRecorder()
+
+	getHealthHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, esperado 200", rec.Code)
+	}
+	want := `{"status":"ok"}`
+	if got := strings.TrimSpace(rec.Body.String()); got != want {
+		t.Fatalf("body = %q, esperado %q", got, want)
 	}
 }

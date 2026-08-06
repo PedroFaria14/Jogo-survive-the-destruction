@@ -10,6 +10,7 @@ import {
   ListItem,
   ListItemText,
   Chip,
+  CircularProgress,
 } from '@mui/material';
 
 import { sfx } from './sfx.js';
@@ -32,6 +33,7 @@ const GAME_WS_URL = import.meta.env.VITE_WS_URL || 'wss://jogo-survive-the-destr
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://jogo-survive-the-destruction.onrender.com';
 const SCORES_API_URL = `${API_BASE_URL}/api/scores`;
 const CONFIG_API_URL = `${API_BASE_URL}/api/config`;
+const HEALTH_API_URL = `${API_BASE_URL}/api/health`;
 
 // Fallback das constantes do jogo (o servidor fornece via /api/config)
 const DEFAULT_CFG = {
@@ -584,6 +586,7 @@ export default function App() {
   );
   const [bestScore, setBestScore] = useState(0);
   const [isTouch, setIsTouch] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(true);
   const [backendStatus, setBackendStatus] = useState('checking');
   const [lang, setLang] = useState(detectLanguage);
   const t = useCallback((key, vars) => translate(STRINGS[lang], key, vars), [lang]);
@@ -778,21 +781,43 @@ export default function App() {
   // =======================
   // Config compartilhada + verificação do backend (tela de carregamento)
   // =======================
+  // Loop de auto-retry no /api/health: a tela de carregamento só sai quando o
+  // servidor (Render) ligar. Aguenta o cold start (até 5 minutos) antes de
+  // renderizar o erro.
   const checkBackend = useCallback(async () => {
     setBackendStatus('checking');
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    try {
-      const res = await fetch(CONFIG_API_URL, { signal: controller.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setCfg(data);
-      setBackendStatus('ready');
-    } catch {
-      setBackendStatus('error');
-    } finally {
-      clearTimeout(timer);
+    const deadline = Date.now() + 5 * 60 * 1000; // 5 minutos de tentativas
+
+    while (Date.now() < deadline) {
+      let healthOk = false;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 6000);
+      try {
+        const res = await fetch(HEALTH_API_URL, { signal: ctrl.signal });
+        healthOk = res.ok;
+      } catch {
+        healthOk = false;
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (healthOk) {
+        try {
+          const res = await fetch(CONFIG_API_URL);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          setCfg(data);
+          setBackendStatus('ready');
+          return;
+        } catch {
+          // Health ok mas config falhou: tenta de novo no próximo ciclo.
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 4000));
     }
+
+    setBackendStatus('error');
   }, []);
 
   useEffect(() => {
@@ -940,6 +965,37 @@ export default function App() {
     keysRef.current[key] = false;
     sendFrame();
   };
+
+  // =======================
+  // Modo paisagem no celular (tela de carregamento + jogo)
+  // =======================
+  useEffect(() => {
+    if (!isTouch) return;
+
+    const update = () => {
+      setIsLandscape(window.innerWidth >= window.innerHeight);
+    };
+    update();
+
+    // Força tela cheia + paisagem já no carregamento (best-effort, silencioso).
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement
+        .requestFullscreen()
+        .catch(() => {});
+    }
+    if (window.screen?.orientation?.lock) {
+      window.screen.orientation
+        .lock('landscape')
+        .catch(() => {});
+    }
+
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('orientationchange', update);
+    };
+  }, [isTouch]);
 
   // =======================
   // WebSocket (com reconexão automática)
@@ -1562,6 +1618,7 @@ export default function App() {
   // =======================
   if (backendStatus !== 'ready') {
     const isError = backendStatus === 'error';
+    const showRotate = isTouch && !isLandscape;
     return (
       <Box
         sx={{
@@ -1575,57 +1632,88 @@ export default function App() {
           p: 3,
           textAlign: 'center',
           position: 'relative',
-          background:
-            'linear-gradient(180deg, #fdf0d8 0%, #f6e3c5 45%, #efc58b 100%)',
+          overflow: 'hidden',
         }}
       >
+        {/* Fundo integral: imagem de carregamento cobre 100% da tela */}
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            backgroundImage: `url(${carregamentoImg})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        />
+        {/* Overlay translúcido para legibilidade do texto */}
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(0,0,0,0.32)',
+          }}
+        />
         <Button
           variant="outlined"
           size="small"
           sx={{
             position: 'absolute',
+            zIndex: 2,
             top: 'calc(12px + env(safe-area-inset-top))',
             right: 'calc(12px + env(safe-area-inset-right))',
             minWidth: 52,
-            color: PALETTE.textBrown,
-            borderColor: PALETTE.borderSoft,
+            color: '#ffffff',
+            borderColor: 'rgba(255,255,255,0.7)',
+            bgcolor: 'rgba(0,0,0,0.25)',
           }}
           onClick={toggleLang}
         >
           {lang === 'pt' ? 'EN' : 'PT'}
         </Button>
-        {isError ? (
+        {showRotate ? (
           <>
-            <Typography variant="h4" color={PALETTE.fallingDark} fontWeight={800}>
-              {t('loading.errorTitle')}
-            </Typography>
-            <Typography color={PALETTE.textSoft}>
-              {t('loading.errorMsg')}
-            </Typography>
-            <Button
-              variant="contained"
-              size="large"
-              sx={{ bgcolor: PALETTE.olive, '&:hover': { bgcolor: '#5f6d30' } }}
-              onClick={checkBackend}
+            <Typography
+              variant="h5"
+              sx={{ zIndex: 1, color: '#ffffff', fontWeight: 800 }}
             >
-              {t('loading.retry')}
-            </Button>
+              ↔
+            </Typography>
+            <Typography
+              variant="h6"
+              sx={{ zIndex: 1, color: '#ffffff', fontWeight: 700 }}
+            >
+              {t('loading.rotate')}
+            </Typography>
           </>
         ) : (
           <>
-            <img
-              src={carregamentoImg}
-              alt="Carregando"
-              style={{
-                maxWidth: '90%',
-                maxHeight: '70dvh',
-                borderRadius: 16,
-                boxShadow: '0 18px 40px rgba(90,70,40,0.25)',
-              }}
-            />
-            <Typography variant="h6" color={PALETTE.textBrown} fontWeight={700}>
-              {t('loading.checking')}
-            </Typography>
+            <Box sx={{ zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+              {isError ? (
+                <>
+                  <Typography variant="h4" color="#ffffff" fontWeight={800}>
+                    {t('loading.errorTitle')}
+                  </Typography>
+                  <Typography color="rgba(255,255,255,0.85)">
+                    {t('loading.errorMsg')}
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    sx={{ bgcolor: PALETTE.olive, '&:hover': { bgcolor: '#5f6d30' } }}
+                    onClick={checkBackend}
+                  >
+                    {t('loading.retry')}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <CircularProgress sx={{ color: PALETTE.goldStrong }} size={52} />
+                  <Typography variant="h6" color="#ffffff" fontWeight={700}>
+                    {t('loading.searching')}
+                  </Typography>
+                </>
+              )}
+            </Box>
           </>
         )}
       </Box>

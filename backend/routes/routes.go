@@ -189,6 +189,15 @@ func getScoresHandler(hub *controller.Hub, w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(scores)
 }
 
+func getHealthHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 func getConfigHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Método não permitido", http.StatusMethodNotAllowed)
@@ -216,5 +225,8 @@ func InitRoutes(hub *controller.Hub, cfg Config) {
 	// 3. Rota de API para a configuração compartilhada do jogo
 	http.HandleFunc("/api/config", withCORS(allowedSet, getConfigHandler))
 
-	log.Printf("Rotas /ws, /api/scores e /api/config configuradas com origens permitidas: %q.", cfg.AllowedOrigins)
+	// 4. Rota de health check (prontidão do servidor para o front)
+	http.HandleFunc("/api/health", withCORS(allowedSet, getHealthHandler))
+
+	log.Printf("Rotas /ws, /api/scores, /api/config e /api/health configuradas com origens permitidas: %q.", cfg.AllowedOrigins)
 }
