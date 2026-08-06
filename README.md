@@ -17,8 +17,9 @@ Jogo multiplayer em tempo real onde a arena de ilhas flutuantes é destruída ao
 - **Cor da bolinha personalizada**: o jogador escolhe a cor na tela inicial (fica salva no navegador) e todos veem a cor de todos.
 - **Física com polimento**: pulo duplo, coyote time, jump buffer, dash com knockback em oponentes, respawn anti-trava.
 - **Vidas e rodadas**: 3 vidas por rodada; placar por tempo sobrevivido; Top 10 no leaderboard.
-- **Mobile completo**: trava em paisagem, tela cheia, controles de toque, suporte a safe-area (notch) e telas de carregamento sorteadas.
-- **Tela de carregamento inteligente**: verifica se o backend está no ar e mostra erro com "Tentar novamente" se não estiver.
+- **Mobile completo**: trava em paisagem (inclusive na tela de carregamento), tela cheia, controles de toque, suporte a safe-area (notch) e telas de carregamento sorteadas.
+- **Tela de carregamento em tela cheia**: imagem de fundo integral + spinner + "Procurando partida...", com aviso de rotação em retrato no celular.
+- **Health check inteligente**: a tela de carregamento só sai quando o `/api/health` confirmar que o backend (Render) ligou — com auto-retry a cada ~4s (aguenta o cold start, até 5 min) e erro com "Tentar novamente" só após esse tempo.
 
 ## 🧱 Stack
 
@@ -41,7 +42,7 @@ backend/
     movement.go        # GameState, física, arena procedural, destruição, quadrado perdido
     powerup.go         # Power-ups e buffs
   routes/
-    routes.go          # Rotas /ws, /api/scores e /api/config + CORS
+    routes.go          # Rotas /ws, /api/scores, /api/config e /api/health + CORS
   service/
     poster.go          # Persistência do placar no PostgreSQL
 frontend/
@@ -121,6 +122,14 @@ npm run preview        # serve o build localmente
 
 ## 🔌 API
 
+### `GET /api/health`
+
+Health check de prontidão do servidor. É o endpoint que o front usa para **sair da tela de carregamento** (a tela "Procurando partida..." só some quando ele responde `200`).
+
+```json
+{ "status": "ok" }
+```
+
 ### `GET /api/config`
 
 Retorna as constantes compartilhadas do jogo (arena, física, power-ups) para evitar drift entre backend e frontend.
@@ -192,12 +201,13 @@ Em seguida, o servidor envia continuamente (60 FPS) o `GameState` completo: `pla
 
 ## 🧠 Mecânicas e Decisões Técnicas
 
-- **Física no servidor**: todo movimento, colisão e destruição rodam no backend (tick a ~60 FPS); o frontend apenas renderiza. Isso mantém todos os jogadores sincronizados.
+- **Física no servidor**: todo movimento, colisão e destruição rodam no backend (tick a ~60 FPS); o frontend apenas renderiza a posição autoritativa. Isso mantém todos os jogadores sincronizados.
+- **Prontidão via `/api/health`**: o front consulta o health em loop (~4s) até o backend responder; só então carrega o `/api/config` e remove a tela de carregamento. Erro é exibido apenas após 5 minutos sem resposta (cold start do Render).
 - **Anti-trava**: jogador parado no chão por 4s é reposicionado sem perder placar.
 - **Destruição da arena**: um tile ativo aleatório é escolhido a cada 3s; ele fica vermelho por 1s e vira buraco. Quando não sobra bloco ativo, a rodada termina.
 - **Quadrado perdido**: a cada 8–14s um tile `kind: "lost"` é criado em célula vazia aleatória e participa da destruição normal.
 - **Cor da bolinha**: hex `#rrggbb` sanitizado no servidor (`SanitizeColor`); o frontend deriva tons (gradiente, brilho, trilha) da cor escolhida. Cor vazia/inválida usa o âmbar padrão.
-- **Mobile em paisagem**: trava `screen.orientation.lock('landscape')` (Android), canvas com `contain` (arena inteira visível) e controles reposicionados com `env(safe-area-inset-*)`.
+- **Mobile em paisagem**: trava `screen.orientation.lock('landscape')` (Android) já na tela de carregamento, com aviso de rotação se o celular estiver em retrato; canvas com `contain` (arena inteira visível) e controles reposicionados com `env(safe-area-inset-*)`.
 
 ## 🧪 Testes
 
