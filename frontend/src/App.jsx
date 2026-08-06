@@ -618,6 +618,9 @@ export default function App() {
     drop_countdown: 0,
     arena_width: DEFAULT_CFG.arena_width,
     arena_height: DEFAULT_CFG.arena_height,
+    room_id: '',
+    room_players: 0,
+    room_capacity: 0,
     players: {},
     myPlayer: null,
     aliveCount: 0,
@@ -1070,6 +1073,9 @@ export default function App() {
             drop_countdown: data.drop_countdown ?? 0,
             arena_width: data.arena_width ?? cfgRef.current.arena_width,
             arena_height: data.arena_height ?? cfgRef.current.arena_height,
+            room_id: data.room_id ?? '',
+            room_players: data.room_players ?? 0,
+            room_capacity: data.room_capacity ?? 0,
             players,
             myPlayer: players[myPlayerIdRef.current] || null,
             aliveCount,
@@ -2129,6 +2135,11 @@ export default function App() {
                           : '—'}
                       </Box>
                       <Box component="div">{t('hud.alive')} {ui.aliveCount}</Box>
+                      {ui.room_id && (
+                        <Box component="div" sx={{ fontSize: '0.72rem', opacity: 0.85 }}>
+                          {t('hud.room')} {ui.room_id.slice(-12)} · {ui.room_players}/{ui.room_capacity}
+                        </Box>
+                      )}
                     </Box>
                     {matchRanking.length > 0 && (
                       <Box
@@ -2332,6 +2343,10 @@ export default function App() {
                   {t('sidebar.record')} {bestScore}s
                 </Typography>
                 <Typography>{t('sidebar.round')} {ui.round}</Typography>
+                <Typography>
+                  {t('sidebar.room')}{' '}
+                  {ui.room_id ? `${ui.room_id} · ${ui.room_players}/${ui.room_capacity}` : '—'}
+                </Typography>
                 <Typography>{t('sidebar.alive')} {ui.aliveCount}</Typography>
                 <Typography>
                   {t('sidebar.nextDrop')}{' '}

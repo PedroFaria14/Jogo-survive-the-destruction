@@ -41,13 +41,18 @@ func (m *mockScoreService) waitSaves(n int) {
 	}
 }
 
-// newTestHub cria um Hub sem serviço de placar (não usado por roundShouldEnd).
+// newTestHub cria um Hub sem serviço de placar.
 func newTestHub() *Hub {
 	return NewHub(nil)
 }
 
 func newTestHubWithScores(m *mockScoreService) *Hub {
 	return NewHub(m)
+}
+
+// newTestRoom cria uma sala de teste (com serviço de placar opcional).
+func newTestRoom(ss service.ScoreService) *Room {
+	return newRoom("sala_teste", ss)
 }
 
 func TestSanitizeName(t *testing.T) {
@@ -74,13 +79,13 @@ func TestSanitizeName(t *testing.T) {
 // vencedor (jogador ainda vivo) é persistido.
 func TestSaveFinalScoresWinner(t *testing.T) {
 	mock := &mockScoreService{}
-	h := newTestHubWithScores(mock)
-	p := h.GameState.AddPlayer("conn1")
+	room := newTestRoom(mock)
+	p := room.GameState.AddPlayer("conn1")
 	p.Name = "Campea"
 	p.StartTime = time.Now().Add(-10 * time.Second)
-	h.roundOver = true
+	room.roundOver = true
 
-	h.saveFinalScores()
+	room.saveFinalScores()
 	mock.waitSaves(1)
 
 	if mock.count() != 1 {
@@ -92,16 +97,16 @@ func TestSaveFinalScoresWinner(t *testing.T) {
 // placar de um jogador morto é salvo e o de um vivo não.
 func TestSaveFinalScoresDeadDuringRound(t *testing.T) {
 	mock := &mockScoreService{}
-	h := newTestHubWithScores(mock)
-	dead := h.GameState.AddPlayer("conn1")
-	alive := h.GameState.AddPlayer("conn2")
+	room := newTestRoom(mock)
+	dead := room.GameState.AddPlayer("conn1")
+	alive := room.GameState.AddPlayer("conn2")
 	dead.IsDead = true
 	dead.StartTime = time.Now().Add(-10 * time.Second)
 	alive.IsDead = false
 	alive.StartTime = time.Now().Add(-10 * time.Second)
-	h.roundOver = false
+	room.roundOver = false
 
-	h.saveFinalScores()
+	room.saveFinalScores()
 	mock.waitSaves(1)
 
 	if mock.count() != 1 {
@@ -116,12 +121,12 @@ func TestSaveFinalScoresDeadDuringRound(t *testing.T) {
 // (spam de restart) não são persistidos.
 func TestSaveFinalScoresSkipsTrivial(t *testing.T) {
 	mock := &mockScoreService{}
-	h := newTestHubWithScores(mock)
-	p := h.GameState.AddPlayer("conn1")
+	room := newTestRoom(mock)
+	p := room.GameState.AddPlayer("conn1")
 	p.IsDead = true
 	p.StartTime = time.Now() // duration < MinScoreToSave
 
-	h.saveFinalScores()
+	room.saveFinalScores()
 	time.Sleep(50 * time.Millisecond)
 
 	if mock.count() != 0 {
@@ -130,63 +135,134 @@ func TestSaveFinalScoresSkipsTrivial(t *testing.T) {
 }
 
 func TestRoundShouldEndNoPlayers(t *testing.T) {
-	h := newTestHub()
-	if h.roundShouldEnd() {
+	room := newTestRoom(nil)
+	if room.roundShouldEnd() {
 		t.Fatal("rodada não deve encerrar sem jogadores")
 	}
 }
 
 func TestRoundShouldEndAllDead(t *testing.T) {
-	h := newTestHub()
-	h.GameState.AddPlayer("conn1")
-	for _, p := range h.GameState.Players {
+	room := newTestRoom(nil)
+	room.GameState.AddPlayer("conn1")
+	for _, p := range room.GameState.Players {
 		p.IsDead = true
 	}
-	if !h.roundShouldEnd() {
+	if !room.roundShouldEnd() {
 		t.Fatal("rodada deve encerrar com todos os jogadores mortos")
 	}
 }
 
 func TestRoundShouldEndSoloAlive(t *testing.T) {
-	h := newTestHub()
-	p := h.GameState.AddPlayer("conn1")
+	room := newTestRoom(nil)
+	p := room.GameState.AddPlayer("conn1")
 	p.IsDead = false
 	// Total == 1: não pode encerrar só porque resta 1 vivo.
-	if h.roundShouldEnd() {
+	if room.roundShouldEnd() {
 		t.Fatal("rodada não deve encerrar com 1 jogador vivo em jogo solo")
 	}
 }
 
 func TestRoundShouldEndMultiLastAlive(t *testing.T) {
-	h := newTestHub()
-	a := h.GameState.AddPlayer("conn1")
-	b := h.GameState.AddPlayer("conn2")
+	room := newTestRoom(nil)
+	a := room.GameState.AddPlayer("conn1")
+	b := room.GameState.AddPlayer("conn2")
 	a.IsDead = false
 	b.IsDead = true
-	if !h.roundShouldEnd() {
+	if !room.roundShouldEnd() {
 		t.Fatal("rodada deve encerrar com apenas 1 vivo em multiplayer")
 	}
 }
 
 func TestRoundShouldEndMultiAllAlive(t *testing.T) {
-	h := newTestHub()
-	a := h.GameState.AddPlayer("conn1")
-	b := h.GameState.AddPlayer("conn2")
+	room := newTestRoom(nil)
+	a := room.GameState.AddPlayer("conn1")
+	b := room.GameState.AddPlayer("conn2")
 	a.IsDead = false
 	b.IsDead = false
-	if h.roundShouldEnd() {
+	if room.roundShouldEnd() {
 		t.Fatal("rodada não deve encerrar com todos vivos")
 	}
 }
 
 func TestRoundShouldEndNoActiveTiles(t *testing.T) {
-	h := newTestHub()
-	h.GameState.AddPlayer("conn1")
+	room := newTestRoom(nil)
+	room.GameState.AddPlayer("conn1")
 	// Desativa todos os tiles: mesmo com jogador vivo, a arena acabou.
-	for _, tile := range h.GameState.ArenaTiles {
+	for _, tile := range room.GameState.ArenaTiles {
 		tile.IsActive = false
 	}
-	if !h.roundShouldEnd() {
+	if !room.roundShouldEnd() {
 		t.Fatal("rodada deve encerrar quando a arena fica sem tiles ativos")
+	}
+}
+
+// TestAssignRoomReusesOpen garante que um novo cliente entra na primeira sala
+// que ainda tem vagas, em vez de criar uma nova.
+func TestAssignRoomReusesOpen(t *testing.T) {
+	h := newTestHub()
+	roomA := h.assignRoom(&Client{})
+	if roomA == nil {
+		t.Fatal("assignRoom não deveria retornar nil")
+	}
+	// Simula 4 jogadores na sala A (5 - 1 = 4 vagas restantes).
+	clients := make([]*Client, PlayersPerRoom-1)
+	for i := range clients {
+		clients[i] = &Client{}
+		roomA.Clients[clients[i]] = true
+	}
+	// O 5º jogador ainda cabe na sala A.
+	fifth := h.assignRoom(&Client{})
+	if fifth != roomA {
+		t.Fatalf("5º jogador deveria entrar na sala existente %q, mas entrou em outra", roomA.ID)
+	}
+}
+
+// TestAssignRoomCreatesNewWhenFull garante que, com a sala lotada, o jogador
+// entra em uma sala nova.
+func TestAssignRoomCreatesNewWhenFull(t *testing.T) {
+	h := newTestHub()
+	roomA := h.assignRoom(&Client{})
+	clients := make([]*Client, PlayersPerRoom)
+	for i := range clients {
+		clients[i] = &Client{}
+		roomA.Clients[clients[i]] = true
+	}
+	if len(roomA.Clients) != PlayersPerRoom {
+		t.Fatalf("sala deveria ter %d clientes, tem %d", PlayersPerRoom, len(roomA.Clients))
+	}
+	next := h.assignRoom(&Client{})
+	if next == roomA {
+		t.Fatal("jogador não deveria entrar em sala lotada")
+	}
+	if len(h.Rooms) != 2 {
+		t.Fatalf("deveria haver 2 salas, há %d", len(h.Rooms))
+	}
+}
+
+// TestEmptyRoomCleanupRemove garante que remover o último cliente descarta
+// a sala do Hub.
+func TestEmptyRoomCleanupRemove(t *testing.T) {
+	h := newTestHub()
+	client := &Client{Send: make(chan []byte)}
+	room := h.assignRoom(client)
+	client.Room = room // addPlayer faria isso na conexão real
+	room.Clients[client] = true
+
+	h.removeClient(client)
+	if _, ok := h.Rooms[room.ID]; ok {
+		t.Fatal("sala vazia deveria ser removida do Hub")
+	}
+}
+
+// TestPlayerIDsMayCollideAcrossRooms documenta que o PlayerID não é único
+// globalmente (cada sala tem seu próprio contador). Por isso o roteamento de
+// comandos usa Client.Room, e nunca o PlayerID sozinho.
+func TestPlayerIDsMayCollideAcrossRooms(t *testing.T) {
+	roomA := newTestRoom(nil)
+	roomB := newTestRoom(nil)
+	pa := roomA.GameState.AddPlayer("conn1")
+	pb := roomB.GameState.AddPlayer("conn1")
+	if pa.ID != pb.ID {
+		t.Fatalf("IDs por sala deveriam colidir (ambos %q)", pa.ID)
 	}
 }

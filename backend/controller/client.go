@@ -59,10 +59,10 @@ func ReadPump(c *Client) {
 			continue
 		}
 
-		// Cria o PlayerCommand, anexando o ID do jogador atual (a correção mais importante)
+		// Cria o PlayerCommand, anexando o client (e portanto sua sala) atual.
 		playerCmd := PlayerCommand{
-			PlayerID: c.PlayerID,
-			Cmd:      cmd,
+			Client: c,
+			Cmd:    cmd,
 		}
 		// Envia o comando para o Hub processar
 		c.Hub.Command <- playerCmd
