@@ -1745,6 +1745,20 @@ export default function App() {
             minHeight: 0,
           }}
         >
+        <img
+          src="/logo.jpeg"
+          alt="SURVIVE THE DESTRUCTION"
+          style={{
+            display: gameStarted ? 'none' : 'block',
+            margin: '0 auto',
+            maxHeight: '14dvh',
+            width: 'auto',
+            objectFit: 'contain',
+            borderRadius: 12,
+            boxShadow: '0 10px 24px rgba(90,70,40,0.25)',
+            mb: 1,
+          }}
+        />
         <Typography
           variant="h3"
           align="center"
