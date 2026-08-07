@@ -15,13 +15,6 @@ import {
 
 import { sfx } from './sfx.js';
 import { STRINGS, detectLanguage, translate } from './i18n.js';
-import {
-  createSim,
-  applyInput,
-  stepSim,
-  reconcileSim,
-  ticksFor,
-} from './physics.js';
 
 // Telas de carregamento sorteadas: carrega automaticamente qualquer imagem
 // com prefixo "carregamento" em frontend/assets/ (sem mexer no código).
@@ -682,10 +675,6 @@ export default function App() {
   const powerUpPrevRef = useRef({});
   const prevBuffRef = useRef(null);
 
-  // Simulação client-side (predição) do jogador local. Viver em ref e ser
-  // reconciliado a cada snapshot autoritativo do servidor. Ver physics.js.
-  const simRef = useRef(null);
-
   // Dimensões da arena: o servidor envia por rodada (mapa procedural muda).
   const arenaW = ui.arena_width ?? cfg.arena_width;
   const arenaH = ui.arena_height ?? cfg.arena_height;
@@ -743,11 +732,6 @@ export default function App() {
       jump: keysRef.current.jump,
       dash: keysRef.current.dash,
     };
-    // Predição local: aplica o input no sim antes de enviar, para que o
-    // próprio jogador responda imediatamente (sem esperar o servidor).
-    if (simRef.current) {
-      applyInput(simRef.current, input, performance.now());
-    }
     if (s && s.readyState === WebSocket.OPEN && startedRef.current) {
       s.send(JSON.stringify({ type: 'input', ...input }));
     }
@@ -1088,17 +1072,7 @@ export default function App() {
         // (throttled) para os elementos de texto/HUD.
         gameStateRef.current = data;
 
-        // Predição local — reconcilia o sim com o snapshot autoritativo.
         const nowMs = performance.now();
-        const myId = myPlayerIdRef.current;
-        const myAuth = myId ? data.players?.[myId] : null;
-        if (myAuth) {
-          if (!simRef.current) {
-            simRef.current = createSim(myAuth);
-          }
-          reconcileSim(simRef.current, myAuth, cfgRef.current, nowMs);
-        }
-
         if (nowMs - lastUiRef.current >= 250) {
           lastUiRef.current = nowMs;
           const players = data.players || {};
@@ -1424,20 +1398,6 @@ export default function App() {
       powerUpPrevRef.current = puSnap;
 
       // Jogadores
-      // Predição local: avança o sim do jogador local (não os demais) em
-      // passos fixos equivalentes ao tick do servidor. O próprio jogador
-      // responde ao input sem esperar o retorno — o servidor segue autoritativo
-      // e o sim é reconciliado a cada snapshot recebido (ver onmessage).
-      if (
-        simRef.current &&
-        !simRef.current.is_dead &&
-        myPlayerId &&
-        gameState.players?.[myPlayerId]
-      ) {
-        const tiles = Object.values(gameState.arena_tiles || {});
-        stepSim(simRef.current, tiles, performance.now(), cfgRef.current, ticksFor(dt * 1000));
-      }
-
       const players = Object.values(gameState.players || {});
       const seenIds = new Set();
 
@@ -1488,48 +1448,32 @@ export default function App() {
         const buff = player.buff || null;
         const dispRadius = buff === 'red_mushroom' ? playerRadius * 2 : playerRadius;
 
-        // Coordenadas de exibição: para o próprio jogador, usa a predição
-        // local (sim); os demais usam o estado autoritativo recebido.
-        const disp =
-          player.id === myPlayerId &&
-          simRef.current &&
-          !simRef.current.is_dead
-            ? {
-                ...player,
-                x: simRef.current.x,
-                y: simRef.current.y,
-                vx: simRef.current.vx,
-                vy: simRef.current.vy,
-                on_ground: simRef.current.on_ground,
-              }
-            : player;
-
-        if (disp.is_dead) {
-          drawGhost(ctx, disp, dispRadius);
+        if (player.is_dead) {
+          drawGhost(ctx, player, dispRadius);
         } else {
-          drawPlayerBall(ctx, disp, anim, now, dt, dispRadius, buff);
-          if (buff) drawBuffIcon(ctx, disp.x, disp.y, buff, now);
+          drawPlayerBall(ctx, player, anim, now, dt, dispRadius, buff);
+          if (buff) drawBuffIcon(ctx, player.x, player.y, buff, now);
         }
 
         // Seta branca: aponta para o próprio jogador quando ele sai da área
         // visível. Com a arena sempre visível por inteiro (desktop e mobile em
         // paisagem), os limites são a arena completa.
-        if (player.id === myPlayerId && !disp.is_dead) {
+        if (player.id === myPlayerId && !player.is_dead) {
           const vMinX = 0;
           const vMaxX = arenaW;
           const vMinY = 0;
           const vMaxY = arenaH;
 
           if (
-            disp.x < vMinX ||
-            disp.x > vMaxX ||
-            disp.y < vMinY ||
-            disp.y > vMaxY
+            player.x < vMinX ||
+            player.x > vMaxX ||
+            player.y < vMinY ||
+            player.y > vMaxY
           ) {
             const pad = 26;
-            const clampX = Math.max(vMinX + pad, Math.min(vMaxX - pad, disp.x));
-            const clampY = Math.max(vMinY + pad, Math.min(vMaxY - pad, disp.y));
-            const angle = Math.atan2(disp.y - clampY, disp.x - clampX);
+            const clampX = Math.max(vMinX + pad, Math.min(vMaxX - pad, player.x));
+            const clampY = Math.max(vMinY + pad, Math.min(vMaxY - pad, player.y));
+            const angle = Math.atan2(player.y - clampY, player.x - clampX);
             const offset = pad - 12;
             const tipX = clampX + Math.cos(angle) * offset;
             const tipY = clampY + Math.sin(angle) * offset;
