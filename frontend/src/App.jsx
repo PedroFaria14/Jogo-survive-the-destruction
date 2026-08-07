@@ -18,12 +18,18 @@ import { STRINGS, detectLanguage, translate } from './i18n.js';
 
 // Telas de carregamento sorteadas: carrega automaticamente qualquer imagem
 // com prefixo "carregamento" em frontend/assets/ (sem mexer no código).
-const loadingImages = Object.values(
+// "-mobile" = variante em retrato para telas verticais (celular em pé).
+const loadingImages = [];
+const loadingImagesMobile = [];
+for (const [key, url] of Object.entries(
   import.meta.glob('../assets/carregamento*.jpeg', {
     eager: true,
     import: 'default',
   })
-);
+)) {
+  if (key.includes('-mobile')) loadingImagesMobile.push(url);
+  else loadingImages.push(url);
+}
 
 // =======================
 // Configurações
@@ -593,10 +599,15 @@ export default function App() {
   const toggleLang = useCallback(() => {
     setLang((l) => (l === 'pt' ? 'en' : 'pt'));
   }, []);
-  // Sorteio de uma tela de carregamento por visita.
-  const [carregamentoImg] = useState(
-    () => loadingImages[Math.floor(Math.random() * loadingImages.length)]
-  );
+  // Sorteio de uma tela de carregamento por visita (por orientação).
+  const carregamentoImgRef = useRef(null);
+  const carregamentoImg = useMemo(() => {
+    const pool = isLandscape ? loadingImages : loadingImagesMobile;
+    const idx =
+      carregamentoImgRef.current ??
+      (carregamentoImgRef.current = Math.floor(Math.random() * pool.length));
+    return pool[idx % pool.length];
+  }, [isLandscape]);
 
   useEffect(() => {
     try {
