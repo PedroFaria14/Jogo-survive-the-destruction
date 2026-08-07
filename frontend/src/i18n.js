@@ -15,6 +15,7 @@ export const STRINGS = {
     'start.instructions':
       'Use A/D ou ←/→ para mover, W ou Espaço para pular (×2 no ar). Shift para Dash (empurra oponentes). Enter também inicia. Pegue os drops: 🍄 vermelho = Tanque, 🍄 roxo = Velocista, 💎 azul = Planar (um buff por vez).',
     'game.roundOver': 'NOVA RODADA',
+    'game.reviving': 'REVIVENDO',
     'death.title': 'VOCÊ CAIU!',
     'death.placed': 'Você ficou em {pos}º de {total} {players}',
     'death.playersOne': 'jogador',
@@ -64,6 +65,7 @@ export const STRINGS = {
     'start.instructions':
       'Use A/D or ←/→ to move, W or Space to jump (×2 in the air). Shift to Dash (pushes opponents). Enter also starts. Grab the drops: 🍄 red = Tank, 🍄 purple = Speedster, 💎 blue = Glider (one buff at a time).',
     'game.roundOver': 'NEW ROUND',
+    'game.reviving': 'REVIVING',
     'death.title': 'YOU FELL!',
     'death.placed': 'You placed {pos}º of {total} {players}',
     'death.playersOne': 'player',

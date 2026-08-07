@@ -42,7 +42,11 @@ const (
 
 	// Escape de buracos e anti-trava
 	MaxAirJumps  = 1               // Pulo duplo: um pulo extra no ar para sair de buracos
-	StuckTimeout = 4 * time.Second // Se parado no chão por muito tempo, respawna
+	StuckTimeout = 4 * time.Second // Se parado no chão até o respawn por muito tempo
+
+	// RespawnDelay é o tempo (3,2,1...) de espera antes de o jogador voltar à
+	// arena após perder uma vida na killzone.
+	RespawnDelay = 3 * time.Second
 
 	// Destruição da arena (quanto menor, mais frenético)
 	BreakInterval = 3               // Segundos entre cada tile destruído
@@ -199,6 +203,11 @@ type Player struct {
 	LeftHeld       bool      `json:"-"`          // Tecla de esquerda pressionada (input contínuo)
 	RightHeld      bool      `json:"-"`          // Tecla de direita pressionada (input contínuo)
 	stuckSince     time.Time `json:"-"`          // Quando começou a ficar parado no chão (anti-trava)
+
+	// Respawn: cronômetro de 3,2,1 antes de voltar à arena. Enquanto ativo, o
+	// jogador fica fora de jogo (status de contagem) e não é simulado.
+	respawnAt    time.Time `json:"-"`
+	RespawnLeft  int       `json:"respawn_left"` // Segundos restantes p/ HUD (0 = não contando)
 }
 
 type GameState struct {
@@ -657,6 +666,13 @@ func (gs *GameState) respawnPlayer(playerID string, resetScore bool) {
 	p.Buff = ""
 	p.BuffUntil = time.Time{}
 	p.BuffRemaining = 0
+	// Limpa os inputs contínuos: evita o jogador nascer andando para o lado
+	// que estava (RightHeld/LeftHeld/JumpHeld presos no servidor na morte).
+	p.LeftHeld = false
+	p.RightHeld = false
+	p.JumpHeld = false
+	p.respawnAt = time.Time{}
+	p.RespawnLeft = 0
 	log.Printf("Jogador %s respawnado.", p.ID)
 }
 
@@ -722,6 +738,17 @@ func (gs *GameState) ApplyPhysics() {
 
 	for _, player := range gs.Players {
 		if player.IsDead {
+			continue
+		}
+
+		// Respawn em contagem (3,2,1): jogador fora de jogo até o timer expirar.
+		if !player.respawnAt.IsZero() {
+			player.RespawnLeft = int(math.Ceil(player.respawnAt.Sub(now).Seconds()))
+			if now.After(player.respawnAt) {
+				player.respawnAt = time.Time{}
+				player.RespawnLeft = 0
+				gs.respawnPlayer(player.ID, true)
+			}
 			continue
 		}
 
@@ -907,12 +934,18 @@ func (gs *GameState) ApplyPhysics() {
 		if player.Y > gs.ArenaHeight+100 {
 			if player.Lives > 1 {
 				player.Lives--
-				log.Printf("Jogador %s caiu no abismo. Vidas restantes: %d", player.ID, player.Lives)
-				gs.RespawnPlayer(player.ID)
-			} else {
-				player.IsDead = true
-				log.Printf("Jogador %s atingiu a condição de morte.", player.ID)
+				// A queda zera o placar já na morte; o respawn (e o "3,2,1")
+				// acontece no início do próximo loop, quando respawnAt expira.
+				player.Score = 0
+				player.StartTime = now
+				player.respawnAt = now.Add(RespawnDelay)
+				player.RespawnLeft = int(math.Ceil(RespawnDelay.Seconds()))
+				log.Printf("Jogador %s caiu no abismo. Vidas restantes: %d (respawn em %s)",
+					player.ID, player.Lives, RespawnDelay)
+				continue
 			}
+			player.IsDead = true
+			log.Printf("Jogador %s atingiu a condição de morte.", player.ID)
 		}
 	}
 

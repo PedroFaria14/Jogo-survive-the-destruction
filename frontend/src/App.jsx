@@ -1918,6 +1918,22 @@ export default function App() {
                 </Box>
               )}
 
+              {gameStarted && !ui.round_over && !deathPrompt && ui.myPlayer?.respawn_left > 0 && (
+                <Box sx={overlaySx}>
+                  <Typography variant="h4" color={PALETTE.fallingDark} fontWeight={800}>
+                    {t('game.reviving')}
+                  </Typography>
+                  <Typography
+                    variant="h1"
+                    color={PALETTE.goldStrong}
+                    fontWeight={900}
+                    sx={{ fontSize: '6rem' }}
+                  >
+                    {ui.myPlayer.respawn_left}
+                  </Typography>
+                </Box>
+              )}
+
               {gameStarted && deathPrompt && (
                 <Box
                   sx={{

@@ -325,7 +325,7 @@ func TestApplyPhysicsFallingAndLanding(t *testing.T) {
 }
 
 // TestKillzoneLosesLife verifica que cair além da killzone custa uma vida e
-// respawna o jogador na arena.
+// inicia a contagem regressiva (3,2,1) antes do respawn na arena.
 func TestKillzoneLosesLife(t *testing.T) {
 	gs := NewGameState()
 	p := gs.AddPlayer("conn1")
@@ -336,16 +336,43 @@ func TestKillzoneLosesLife(t *testing.T) {
 	p.VelocityY = 0
 	p.IsOnGround = false
 
+	// 1º tick: perde a vida e entra em contagem — ainda fora da arena.
 	gs.ApplyPhysics()
 
 	if p.Lives != 1 {
 		t.Fatalf("vidas após cair na killzone = %d, esperado 1", p.Lives)
 	}
+	if p.Score != 0 {
+		t.Fatalf("queda deve zerar o placar, mas Score=%d", p.Score)
+	}
+	if p.RespawnLeft != 3 {
+		t.Fatalf("RespawnLeft = %d, esperado 3", p.RespawnLeft)
+	}
+	if p.Y < gs.ArenaHeight {
+		t.Fatalf("jogador respawnou antes do fim da contagem (y=%.2f)", p.Y)
+	}
+
+	// 2º tick antes de expirar: continua em contagem (3,2,1).
+	p.respawnAt = time.Now().Add(2 * time.Second)
+	gs.ApplyPhysics()
+	if p.Y < gs.ArenaHeight {
+		t.Fatalf("jogador respawnou antes do timer expirar (y=%.2f)", p.Y)
+	}
+
+	// Timer expira: respawn na arena, inputs limpos, contagem zerada.
+	p.respawnAt = time.Now().Add(-time.Millisecond)
+	p.LeftHeld = true
+	p.RightHeld = true
+	gs.ApplyPhysics()
+
 	if p.Y >= gs.ArenaHeight {
 		t.Fatalf("jogador não foi respawnado na arena (y=%.2f)", p.Y)
 	}
-	if p.Score != 0 {
-		t.Fatalf("queda deve zerar o placar, mas Score=%d", p.Score)
+	if p.RespawnLeft != 0 {
+		t.Fatalf("RespawnLeft = %d após respawn, esperado 0", p.RespawnLeft)
+	}
+	if p.LeftHeld || p.RightHeld {
+		t.Fatal("inputs contínuos deveriam ser limpos no respawn")
 	}
 }
 
