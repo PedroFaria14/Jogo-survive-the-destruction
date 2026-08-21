@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Box,
   Container,
@@ -11,10 +11,10 @@ import {
   ListItemText,
   Chip,
   CircularProgress,
-} from '@mui/material';
+} from "@mui/material";
 
-import { sfx } from './sfx.js';
-import { STRINGS, detectLanguage, translate } from './i18n.js';
+import { sfx } from "./sfx.js";
+import { STRINGS, detectLanguage, translate } from "./i18n.js";
 
 // Telas de carregamento sorteadas: carrega automaticamente qualquer imagem
 // com prefixo "carregamento" em frontend/assets/ (sem mexer no código).
@@ -22,12 +22,12 @@ import { STRINGS, detectLanguage, translate } from './i18n.js';
 const loadingImages = [];
 const loadingImagesMobile = [];
 for (const [key, url] of Object.entries(
-  import.meta.glob('../assets/carregamento*.jpeg', {
+  import.meta.glob("../assets/carregamento*.jpeg", {
     eager: true,
-    import: 'default',
-  })
+    import: "default",
+  }),
 )) {
-  if (key.includes('-mobile')) loadingImagesMobile.push(url);
+  if (key.includes("-mobile")) loadingImagesMobile.push(url);
   else loadingImages.push(url);
 }
 
@@ -35,8 +35,8 @@ for (const [key, url] of Object.entries(
 // Configurações
 // =======================
 // URLs configuráveis via variáveis de ambiente Vite (VITE_*) com fallback local.
-const GAME_WS_URL = import.meta.env.VITE_WS_URL || 'wss://jogo-survive-the-destruction.onrender.com/ws';
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://jogo-survive-the-destruction.onrender.com';
+const GAME_WS_URL = import.meta.env.VITE_WS_URL || "wss://jogo-survive-the-destruction.onrender.com/ws";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "https://api.survive.phfaria.com/";
 const SCORES_API_URL = `${API_BASE_URL}/api/scores`;
 const CONFIG_API_URL = `${API_BASE_URL}/api/config`;
 const HEALTH_API_URL = `${API_BASE_URL}/api/health`;
@@ -78,54 +78,54 @@ const GLOW_PULSE_SPEED = 260; // Velocidade do pulso de brilho
 // Paleta "ilhas flutuantes" (flat + sereno + terroso)
 // =======================
 const PALETTE = {
-  skyTop: '#dcece9',
-  skyMid: '#f6e3c5',
-  skyBottom: '#efc58b',
-  grassTop: '#8a9a4a',
-  grassEdge: '#6f7d3a',
-  soilTop: '#b08d5f',
-  soilBottom: '#8f6f47',
-  soilBorder: '#6b5a3f',
-  islandShadow: 'rgba(90,70,40,0.18)',
-  falling: '#c9743d',
-  fallingDark: '#a8552f',
-  treeTrunk: '#7c5a3a',
-  treeCanopy: '#6f7d3f',
-  treeCanopyLight: '#87944f',
-  ballHi: '#ffe3a3',
-  ballMid: '#f2b544',
-  ballDark: '#d98f24',
-  ballGlow: '#f4b942',
-  ballMarker: '#7a4b12',
-  ballOutline: 'rgba(122,75,18,0.6)',
-  trailRGB: '244,185,66',
-  ghostFill: 'rgba(180,150,90,0.18)',
-  ghostStroke: 'rgba(160,120,60,0.4)',
-  gold: '#f4b942',
-  amber: '#e0a63c',
-  terracotta: '#c96f4a',
-  soilCrumb: '#8f6f47',
-  cream: '#fdf6e9',
-  creamOverlay: 'rgba(252,244,231,0.94)',
-  textBrown: '#4a3b28',
-  textSoft: '#7a623f',
-  olive: '#6f7d3a',
-  goldStrong: '#d99a2b',
-  terracottaStrong: '#c96f4a',
-  borderSoft: 'rgba(145,110,64,0.55)',
+  skyTop: "#dcece9",
+  skyMid: "#f6e3c5",
+  skyBottom: "#efc58b",
+  grassTop: "#8a9a4a",
+  grassEdge: "#6f7d3a",
+  soilTop: "#b08d5f",
+  soilBottom: "#8f6f47",
+  soilBorder: "#6b5a3f",
+  islandShadow: "rgba(90,70,40,0.18)",
+  falling: "#c9743d",
+  fallingDark: "#a8552f",
+  treeTrunk: "#7c5a3a",
+  treeCanopy: "#6f7d3f",
+  treeCanopyLight: "#87944f",
+  ballHi: "#ffe3a3",
+  ballMid: "#f2b544",
+  ballDark: "#d98f24",
+  ballGlow: "#f4b942",
+  ballMarker: "#7a4b12",
+  ballOutline: "rgba(122,75,18,0.6)",
+  trailRGB: "244,185,66",
+  ghostFill: "rgba(180,150,90,0.18)",
+  ghostStroke: "rgba(160,120,60,0.4)",
+  gold: "#f4b942",
+  amber: "#e0a63c",
+  terracotta: "#c96f4a",
+  soilCrumb: "#8f6f47",
+  cream: "#fdf6e9",
+  creamOverlay: "rgba(252,244,231,0.94)",
+  textBrown: "#4a3b28",
+  textSoft: "#7a623f",
+  olive: "#6f7d3a",
+  goldStrong: "#d99a2b",
+  terracottaStrong: "#c96f4a",
+  borderSoft: "rgba(145,110,64,0.55)",
   // Power-ups
-  redMushTop: '#ff6b5e',
-  redMushDark: '#c93a3a',
-  redMushSpot: '#ffe9dc',
-  purpleMushTop: '#b06fd6',
-  purpleMushDark: '#7d44a3',
-  purpleMushSpot: '#f3e2ff',
-  crystalLight: '#cfefff',
-  crystalMid: '#5fb9e8',
-  crystalDark: '#2f7fb5',
-  buffTintRed: 'rgba(255,107,94,0.22)',
-  buffTintPurple: 'rgba(176,111,214,0.22)',
-  buffTintBlue: 'rgba(95,185,232,0.22)',
+  redMushTop: "#ff6b5e",
+  redMushDark: "#c93a3a",
+  redMushSpot: "#ffe9dc",
+  purpleMushTop: "#b06fd6",
+  purpleMushDark: "#7d44a3",
+  purpleMushSpot: "#f3e2ff",
+  crystalLight: "#cfefff",
+  crystalMid: "#5fb9e8",
+  crystalDark: "#2f7fb5",
+  buffTintRed: "rgba(255,107,94,0.22)",
+  buffTintPurple: "rgba(176,111,214,0.22)",
+  buffTintBlue: "rgba(95,185,232,0.22)",
 };
 
 // Caminho de retângulo com cantos arredondados (sem depender de ctx.roundRect).
@@ -146,7 +146,7 @@ function roundRectPath(ctx, x, y, w, h, r) {
 
 // Converte "#rrggbb" para {r, g, b} (ou null se inválido).
 function hexToRgb(hex) {
-  const m = /^#([0-9a-fA-F]{6})$/.exec(hex || '');
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex || "");
   if (!m) return null;
   const n = parseInt(m[1], 16);
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
@@ -196,7 +196,7 @@ function tileHash(x, y) {
 
 // Árvore flat: tronco marrom + copa circular olive com meia-lua clara.
 function drawTree(ctx, x, y, s) {
-  ctx.fillStyle = 'rgba(60,70,30,0.15)';
+  ctx.fillStyle = "rgba(60,70,30,0.15)";
   ctx.beginPath();
   ctx.ellipse(x + s * 0.5, y + s * 0.62, s * 0.18, s * 0.06, 0, 0, Math.PI * 2);
   ctx.fill();
@@ -218,7 +218,7 @@ function drawTree(ctx, x, y, s) {
 
 // Nuvem suave (flat) no céu.
 function drawCloud(ctx, x, y, s) {
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
   ctx.beginPath();
   ctx.ellipse(x, y, s, s * 0.4, 0, 0, Math.PI * 2);
   ctx.fill();
@@ -232,13 +232,13 @@ function drawCloud(ctx, x, y, s) {
 
 // Cogumelo (red = Tanque, purple = Velocista): capa arredondada + caule.
 function drawMushroom(ctx, x, y, type) {
-  const red = type === 'red_mushroom';
+  const red = type === "red_mushroom";
   const cap = red ? PALETTE.redMushTop : PALETTE.purpleMushTop;
   const capDark = red ? PALETTE.redMushDark : PALETTE.purpleMushDark;
   const spot = red ? PALETTE.redMushSpot : PALETTE.purpleMushSpot;
 
   // Caule
-  ctx.fillStyle = '#f6ead2';
+  ctx.fillStyle = "#f6ead2";
   roundRectPath(ctx, x - 4, y + 2, 8, 9, 3);
   ctx.fill();
 
@@ -252,7 +252,7 @@ function drawMushroom(ctx, x, y, type) {
   ctx.fill();
 
   // Brilho na capa
-  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
   ctx.beginPath();
   ctx.ellipse(x - 5, y - 7, 4, 2.4, -0.5, 0, Math.PI * 2);
   ctx.fill();
@@ -319,9 +319,9 @@ function drawPowerUpDrop(ctx, pu, now) {
   const bob = Math.sin(now / 320 + (pu.id ? pu.id.length : 0)) * 2;
   const y = pu.y + bob;
   const glowColor =
-    pu.type === 'red_mushroom'
+    pu.type === "red_mushroom"
       ? PALETTE.redMushTop
-      : pu.type === 'purple_mushroom'
+      : pu.type === "purple_mushroom"
         ? PALETTE.purpleMushTop
         : PALETTE.crystalMid;
 
@@ -338,7 +338,7 @@ function drawPowerUpDrop(ctx, pu, now) {
   ctx.fill();
   ctx.globalAlpha = 1;
 
-  if (pu.type === 'blue_crystal') {
+  if (pu.type === "blue_crystal") {
     drawCrystal(ctx, 0, 0);
   } else {
     drawMushroom(ctx, 0, 0, pu.type);
@@ -354,19 +354,19 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius, buff) {
   const pal = ballPalette(player.color);
   // Cores e glow do rastro conforme o buff ativo.
   const trailColor =
-    buff === 'red_mushroom'
+    buff === "red_mushroom"
       ? PALETTE.redMushTop
-      : buff === 'purple_mushroom'
+      : buff === "purple_mushroom"
         ? PALETTE.purpleMushTop
-        : buff === 'blue_crystal'
+        : buff === "blue_crystal"
           ? PALETTE.crystalMid
           : pal.trail;
   const glowColor =
-    buff === 'red_mushroom'
+    buff === "red_mushroom"
       ? PALETTE.redMushDark
-      : buff === 'purple_mushroom'
+      : buff === "purple_mushroom"
         ? PALETTE.purpleMushDark
-        : buff === 'blue_crystal'
+        : buff === "blue_crystal"
           ? PALETTE.crystalLight
           : pal.glow;
 
@@ -419,9 +419,9 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius, buff) {
   // Tinta do buff sobre a bola
   if (buff) {
     const tint =
-      buff === 'red_mushroom'
+      buff === "red_mushroom"
         ? PALETTE.buffTintRed
-        : buff === 'purple_mushroom'
+        : buff === "purple_mushroom"
           ? PALETTE.buffTintPurple
           : PALETTE.buffTintBlue;
     ctx.fillStyle = tint;
@@ -457,8 +457,8 @@ function drawPlayerBall(ctx, player, anim, now, dt, radius, buff) {
   ctx.stroke();
 
   // Planar: hélice de vento ao planar (partículas espirais de gelo)
-  if (buff === 'blue_crystal') {
-    ctx.strokeStyle = 'rgba(207,239,255,0.7)';
+  if (buff === "blue_crystal") {
+    ctx.strokeStyle = "rgba(207,239,255,0.7)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     for (let a = 0; a < Math.PI * 2; a += 0.3) {
@@ -495,7 +495,7 @@ function drawBuffIcon(ctx, x, y, buff, now) {
   const bob = Math.sin(now / 280) * 2;
   ctx.save();
   ctx.translate(x, y - 34 + bob);
-  if (buff === 'blue_crystal') {
+  if (buff === "blue_crystal") {
     drawCrystal(ctx, 0, 0);
   } else {
     drawMushroom(ctx, 0, 0, buff);
@@ -515,48 +515,35 @@ const Leaderboard = React.memo(({ scores, highlightName, lang }) => {
         borderRadius: 4,
         bgcolor: PALETTE.cream,
         border: `1px solid rgba(201,111,74,0.45)`,
-        boxShadow: '0 10px 30px rgba(90,70,40,0.12)',
+        boxShadow: "0 10px 30px rgba(90,70,40,0.12)",
       }}
     >
       <Typography variant="h6" color={PALETTE.terracottaStrong} gutterBottom>
-        {dict['leaderboard.title']}
+        {dict["leaderboard.title"]}
       </Typography>
 
       {scores.length === 0 ? (
         <Typography variant="body2" color="text.secondary">
-          {dict['leaderboard.empty']}
+          {dict["leaderboard.empty"]}
         </Typography>
       ) : (
         <List dense>
           {scores.map((score, index) => {
             const name =
-              score.name ||
-              (score.player_id
-                ? `Player_${score.player_id.slice(-4)}`
-                : dict['leaderboard.anon']);
+              score.name || (score.player_id ? `Player_${score.player_id.slice(-4)}` : dict["leaderboard.anon"]);
             const hl = highlightName && name === highlightName;
             return (
               <ListItem
                 key={index}
                 sx={{
-                  bgcolor: hl
-                    ? 'rgba(217,154,43,0.28)'
-                    : 'rgba(240,224,196,0.6)',
+                  bgcolor: hl ? "rgba(217,154,43,0.28)" : "rgba(240,224,196,0.6)",
                   borderRadius: 2,
                   mb: 1,
                 }}
               >
-                <Chip
-                  label={index + 1}
-                  size="small"
-                  sx={{ mr: 2 }}
-                  color={index < 3 ? 'warning' : 'default'}
-                />
+                <Chip label={index + 1} size="small" sx={{ mr: 2 }} color={index < 3 ? "warning" : "default"} />
 
-                <ListItemText
-                  primary={name}
-                  primaryTypographyProps={{ fontWeight: hl ? 800 : 400 }}
-                />
+                <ListItemText primary={name} primaryTypographyProps={{ fontWeight: hl ? 800 : 400 }} />
 
                 <Typography color={PALETTE.goldStrong} fontWeight="bold">
                   {score.score_seconds}s
@@ -573,7 +560,7 @@ const Leaderboard = React.memo(({ scores, highlightName, lang }) => {
 // Verdadeiro se o evento veio de um campo de texto (não acionar atalhos).
 function isTypingTarget(e) {
   const t = e.target;
-  return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
 }
 
 // =======================
@@ -584,38 +571,32 @@ export default function App() {
   const [scores, setScores] = useState([]);
   const [myPlayerId, setMyPlayerId] = useState(null);
   const [gameStarted, setGameStarted] = useState(false);
-  const [nickname, setNickname] = useState(
-    () => `Jogador${Math.floor(1000 + Math.random() * 9000)}`
-  );
-  const [ballColor, setBallColor] = useState(
-    () => localStorage.getItem('ballColor') || '#f2b544'
-  );
+  const [nickname, setNickname] = useState(() => `Jogador${Math.floor(1000 + Math.random() * 9000)}`);
+  const [ballColor, setBallColor] = useState(() => localStorage.getItem("ballColor") || "#f2b544");
   const [bestScore, setBestScore] = useState(0);
   const [isTouch, setIsTouch] = useState(false);
   const [isLandscape, setIsLandscape] = useState(true);
-  const [backendStatus, setBackendStatus] = useState('checking');
+  const [backendStatus, setBackendStatus] = useState("checking");
   const [lang, setLang] = useState(detectLanguage);
   const t = useCallback((key, vars) => translate(STRINGS[lang], key, vars), [lang]);
   const toggleLang = useCallback(() => {
-    setLang((l) => (l === 'pt' ? 'en' : 'pt'));
+    setLang((l) => (l === "pt" ? "en" : "pt"));
   }, []);
   // Sorteio de uma tela de carregamento por visita (por orientação).
   const carregamentoImgRef = useRef(null);
   const carregamentoImg = useMemo(() => {
     const pool = isLandscape ? loadingImages : loadingImagesMobile;
-    const idx =
-      carregamentoImgRef.current ??
-      (carregamentoImgRef.current = Math.floor(Math.random() * pool.length));
+    const idx = carregamentoImgRef.current ?? (carregamentoImgRef.current = Math.floor(Math.random() * pool.length));
     return pool[idx % pool.length];
   }, [isLandscape]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('lang', lang);
+      localStorage.setItem("lang", lang);
     } catch {
       // localStorage indisponível: ignora.
     }
-    document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en';
+    document.documentElement.lang = lang === "pt" ? "pt-BR" : "en";
   }, [lang]);
 
   // O estado do jogo (60 FPS) é guardado em ref e desenhado no canvas via
@@ -629,7 +610,7 @@ export default function App() {
     drop_countdown: 0,
     arena_width: DEFAULT_CFG.arena_width,
     arena_height: DEFAULT_CFG.arena_height,
-    room_id: '',
+    room_id: "",
     room_players: 0,
     room_capacity: 0,
     players: {},
@@ -645,10 +626,7 @@ export default function App() {
       .filter((p) => p && p.id)
       .sort((a, b) => (b.score || 0) - (a.score || 0));
   }, [ui.players]);
-  const myPos =
-    ui.myPlayer && matchRanking.length > 0
-      ? matchRanking.findIndex((p) => p.id === ui.myPlayer.id) + 1
-      : 0;
+  const myPos = ui.myPlayer && matchRanking.length > 0 ? matchRanking.findIndex((p) => p.id === ui.myPlayer.id) + 1 : 0;
 
   // Prompt persistente de "outra partida" (disparado ao perder as 3 vidas).
   // Fica aberto até o jogador decidir, mesmo que a rodada reinicie por baixo.
@@ -702,15 +680,11 @@ export default function App() {
     }));
     // Tela cheia no celular (Android): esconde a barra do navegador. iOS ignora.
     if (isTouch && document.documentElement.requestFullscreen) {
-      document.documentElement
-        .requestFullscreen()
-        .catch(() => {});
+      document.documentElement.requestFullscreen().catch(() => {});
     }
     // Trava a orientação em paisagem no celular (Android; iOS ignora).
     if (isTouch && window.screen?.orientation?.lock) {
-      window.screen.orientation
-        .lock('landscape')
-        .catch(() => {});
+      window.screen.orientation.lock("landscape").catch(() => {});
     }
   }, [isTouch]);
 
@@ -733,7 +707,7 @@ export default function App() {
       dash: keysRef.current.dash,
     };
     if (s && s.readyState === WebSocket.OPEN && startedRef.current) {
-      s.send(JSON.stringify({ type: 'input', ...input }));
+      s.send(JSON.stringify({ type: "input", ...input }));
     }
   }, []);
 
@@ -743,7 +717,7 @@ export default function App() {
   const sendRestart = useCallback(() => {
     sfx.click();
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: 'restart' }));
+      socketRef.current.send(JSON.stringify({ type: "restart" }));
     }
   }, []);
 
@@ -799,7 +773,7 @@ export default function App() {
   // servidor (Render) ligar. Aguenta o cold start (até 5 minutos) antes de
   // renderizar o erro.
   const checkBackend = useCallback(async () => {
-    setBackendStatus('checking');
+    setBackendStatus("checking");
     const deadline = Date.now() + 5 * 60 * 1000; // 5 minutos de tentativas
 
     while (Date.now() < deadline) {
@@ -821,7 +795,7 @@ export default function App() {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
           setCfg(data);
-          setBackendStatus('ready');
+          setBackendStatus("ready");
           return;
         } catch {
           // Health ok mas config falhou: tenta de novo no próximo ciclo.
@@ -831,7 +805,7 @@ export default function App() {
       await new Promise((resolve) => setTimeout(resolve, 4000));
     }
 
-    setBackendStatus('error');
+    setBackendStatus("error");
   }, []);
 
   useEffect(() => {
@@ -863,7 +837,7 @@ export default function App() {
 
   useEffect(() => {
     ballColorRef.current = ballColor;
-    localStorage.setItem('ballColor', ballColor);
+    localStorage.setItem("ballColor", ballColor);
   }, [ballColor]);
 
   useEffect(() => {
@@ -888,30 +862,30 @@ export default function App() {
       // Bloqueia o comportamento padrão ANTES do auto-repeat (segurar a tecla
       // não pode rolar a página nem re-acionar botões em foco).
       if (
-        k === ' ' ||
-        k === 'w' ||
-        k === 'a' ||
-        k === 'd' ||
-        k === 'arrowleft' ||
-        k === 'arrowright' ||
-        k === 'shift'
+        k === " " ||
+        k === "w" ||
+        k === "a" ||
+        k === "d" ||
+        k === "arrowleft" ||
+        k === "arrowright" ||
+        k === "shift"
       ) {
         e.preventDefault();
       }
 
       if (e.repeat) return;
 
-      if (k === 'a' || k === 'arrowleft') {
+      if (k === "a" || k === "arrowleft") {
         keysRef.current.left = true;
         sendFrame();
-      } else if (k === 'd' || k === 'arrowright') {
+      } else if (k === "d" || k === "arrowright") {
         keysRef.current.right = true;
         sendFrame();
-      } else if (k === 'w' || k === ' ') {
+      } else if (k === "w" || k === " ") {
         keysRef.current.jump = true;
         sfx.jump();
         sendFrame();
-      } else if (k === 'shift') {
+      } else if (k === "shift") {
         keysRef.current.dash = true;
         sfx.dash();
         sendFrame();
@@ -920,17 +894,17 @@ export default function App() {
 
     const handleKeyUp = (e) => {
       const k = e.key.toLowerCase();
-      if (k === 'a' || k === 'arrowleft') keysRef.current.left = false;
-      else if (k === 'd' || k === 'arrowright') keysRef.current.right = false;
-      else if (k === 'w' || k === ' ') keysRef.current.jump = false;
-      else if (k === 'shift') keysRef.current.dash = false;
+      if (k === "a" || k === "arrowleft") keysRef.current.left = false;
+      else if (k === "d" || k === "arrowright") keysRef.current.right = false;
+      else if (k === "w" || k === " ") keysRef.current.jump = false;
+      else if (k === "shift") keysRef.current.dash = false;
       else return;
       sendFrame();
     };
 
     const handleStartKey = (e) => {
       // Não inicia o jogo ao digitar espaço/Enter em um campo de texto.
-      if (!startedRef.current && !isTypingTarget(e) && (e.key === 'Enter' || e.key === ' ')) {
+      if (!startedRef.current && !isTypingTarget(e) && (e.key === "Enter" || e.key === " ")) {
         e.preventDefault();
         handleStartGame();
       }
@@ -948,17 +922,17 @@ export default function App() {
       if (document.hidden) resetKeys();
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('keydown', handleStartKey);
-    window.addEventListener('blur', resetKeys);
-    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("keydown", handleStartKey);
+    window.addEventListener("blur", resetKeys);
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('keydown', handleStartKey);
-      window.removeEventListener('blur', resetKeys);
-      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("keydown", handleStartKey);
+      window.removeEventListener("blur", resetKeys);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [sendFrame, handleStartGame]);
 
@@ -966,12 +940,12 @@ export default function App() {
   // Touch
   // =======================
   useEffect(() => {
-    setIsTouch(window.matchMedia?.('(pointer: coarse)').matches ?? false);
+    setIsTouch(window.matchMedia?.("(pointer: coarse)").matches ?? false);
   }, []);
 
   const touchPress = (key) => () => {
-    if (key === 'jump') sfx.jump();
-    else if (key === 'dash') sfx.dash();
+    if (key === "jump") sfx.jump();
+    else if (key === "dash") sfx.dash();
     keysRef.current[key] = true;
     sendFrame();
   };
@@ -993,21 +967,17 @@ export default function App() {
 
     // Força tela cheia + paisagem já no carregamento (best-effort, silencioso).
     if (document.documentElement.requestFullscreen) {
-      document.documentElement
-        .requestFullscreen()
-        .catch(() => {});
+      document.documentElement.requestFullscreen().catch(() => {});
     }
     if (window.screen?.orientation?.lock) {
-      window.screen.orientation
-        .lock('landscape')
-        .catch(() => {});
+      window.screen.orientation.lock("landscape").catch(() => {});
     }
 
-    window.addEventListener('resize', update);
-    window.addEventListener('orientationchange', update);
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
     return () => {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('orientationchange', update);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
     };
   }, [isTouch]);
 
@@ -1028,14 +998,14 @@ export default function App() {
 
       ws.onopen = () => {
         attempts = 0;
-        console.log('🟢 WebSocket conectado');
+        console.log("🟢 WebSocket conectado");
         sfx.unlock();
         ws.send(
           JSON.stringify({
-            type: 'join',
+            type: "join",
             name: nicknameRef.current,
             color: ballColorRef.current,
-          })
+          }),
         );
         // Reconexão: reenvia o estado atual de input para que teclas seguradas
         // continuem funcionando sem o jogador precisar soltar/repressionar.
@@ -1043,12 +1013,12 @@ export default function App() {
         if (k.left || k.right || k.jump || k.dash) {
           ws.send(
             JSON.stringify({
-              type: 'input',
+              type: "input",
               left: k.left,
               right: k.right,
               jump: k.jump,
               dash: k.dash,
-            })
+            }),
           );
         }
       };
@@ -1061,7 +1031,7 @@ export default function App() {
           return;
         }
 
-        if (data.type === 'init') {
+        if (data.type === "init") {
           setMyPlayerId(data.player_id);
           return;
         }
@@ -1084,7 +1054,7 @@ export default function App() {
             drop_countdown: data.drop_countdown ?? 0,
             arena_width: data.arena_width ?? cfgRef.current.arena_width,
             arena_height: data.arena_height ?? cfgRef.current.arena_height,
-            room_id: data.room_id ?? '',
+            room_id: data.room_id ?? "",
             room_players: data.room_players ?? 0,
             room_capacity: data.room_capacity ?? 0,
             players,
@@ -1095,10 +1065,10 @@ export default function App() {
         }
       };
 
-      ws.onerror = (err) => console.error('WebSocket erro', err);
+      ws.onerror = (err) => console.error("WebSocket erro", err);
 
       ws.onclose = () => {
-        console.log('🔴 WebSocket fechado');
+        console.log("🔴 WebSocket fechado");
         if (closed) return;
         // Reconexão com backoff (máx. 8s).
         attempts++;
@@ -1149,7 +1119,7 @@ export default function App() {
 
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
 
     let rafId;
     let last = performance.now();
@@ -1180,20 +1150,8 @@ export default function App() {
         if (prev && prev.falling === false && tile.is_falling) {
           sfx.tileBreak();
           addShake(7);
-          spawnParticles(
-            tile.x + tileSize / 2,
-            tile.y + tileSize / 2,
-            PALETTE.terracotta,
-            10,
-            160
-          );
-          spawnParticles(
-            tile.x + tileSize / 2,
-            tile.y + tileSize / 2,
-            PALETTE.soilCrumb,
-            8,
-            130
-          );
+          spawnParticles(tile.x + tileSize / 2, tile.y + tileSize / 2, PALETTE.terracotta, 10, 160);
+          spawnParticles(tile.x + tileSize / 2, tile.y + tileSize / 2, PALETTE.soilCrumb, 8, 130);
         }
         prevTilesRef.current[tile.id] = { falling: tile.is_falling, active: tile.is_active };
       });
@@ -1246,7 +1204,7 @@ export default function App() {
         const s = tileSize;
         const falling = tile.is_falling;
         // Autotile: "top" = grama, "mid" = terra, "bottom" = ponta de pedra.
-        const kind = tile.kind || (hasTileAbove(tile) ? 'mid' : 'top');
+        const kind = tile.kind || (hasTileAbove(tile) ? "mid" : "top");
 
         // Sombra sólida deslocada (profundidade)
         ctx.fillStyle = PALETTE.islandShadow;
@@ -1273,7 +1231,7 @@ export default function App() {
         }
 
         // Faixa de grama apenas na superfície ("top")
-        if (kind === 'top') {
+        if (kind === "top") {
           ctx.fillStyle = PALETTE.grassTop;
           roundRectPath(ctx, x, y, s, 20, 10);
           ctx.fill();
@@ -1284,12 +1242,12 @@ export default function App() {
 
         // Quadrado perdido: plataforma extra com halo dourado pulsante para
         // destacar que é um tile especial aparecendo fora do lugar.
-        if (kind === 'lost') {
+        if (kind === "lost") {
           const pulse = 0.14 + Math.sin(now / 260) * 0.05;
           ctx.fillStyle = `rgba(244,185,66,${pulse.toFixed(3)})`;
           roundRectPath(ctx, x - 7, y - 7, s + 14, s + 14, 18);
           ctx.fill();
-          ctx.strokeStyle = 'rgba(217,154,43,0.7)';
+          ctx.strokeStyle = "rgba(217,154,43,0.7)";
           ctx.lineWidth = 2.5;
           roundRectPath(ctx, x - 7, y - 7, s + 14, s + 14, 18);
           ctx.stroke();
@@ -1302,7 +1260,7 @@ export default function App() {
         }
 
         // Ponta de pedra na base da ilha ("bottom")
-        if (kind === 'bottom') {
+        if (kind === "bottom") {
           ctx.fillStyle = PALETTE.soilBorder;
           ctx.beginPath();
           ctx.moveTo(x + s * 0.2, y + s * 0.6);
@@ -1319,7 +1277,7 @@ export default function App() {
         ctx.stroke();
 
         // Árvore em blocos de superfície (autotile "top")
-        if (!falling && kind === 'top' && tileHash(x, y) % 3 === 0) {
+        if (!falling && kind === "top" && tileHash(x, y) % 3 === 0) {
           drawTree(ctx, x, y, s);
         }
       });
@@ -1354,7 +1312,7 @@ export default function App() {
       // foi removido nesta frame próximo a ele (distingue de despawn).
       const myPU = myPlayerId ? gameState.players?.[myPlayerId] : null;
       const hadBuff = prevBuffRef.current;
-      const hasBuff = !!(myPU && myPU.buff && myPU.buff !== '');
+      const hasBuff = !!(myPU && myPU.buff && myPU.buff !== "");
 
       if (myPU && !myPU.is_dead && !hadBuff && hasBuff) {
         const myBuffType = myPU.buff;
@@ -1388,9 +1346,9 @@ export default function App() {
           y: pu.y,
           type: pu.type,
           glow:
-            pu.type === 'red_mushroom'
+            pu.type === "red_mushroom"
               ? PALETTE.redMushTop
-              : pu.type === 'purple_mushroom'
+              : pu.type === "purple_mushroom"
                 ? PALETTE.purpleMushTop
                 : PALETTE.crystalMid,
         };
@@ -1419,13 +1377,10 @@ export default function App() {
 
         // Sons para o próprio jogador
         if (player.id === myPlayerId) {
-          const justLanded =
-            player.on_ground && !anim.prevOnGround && anim.prevVy > 8;
+          const justLanded = player.on_ground && !anim.prevOnGround && anim.prevVy > 8;
           const justDied = player.is_dead && !anim.prevDead;
-          const justDoubleJumped =
-            !player.on_ground && player.jumps_used === 1 && anim.prevJumpsUsed === 0;
-          const lostLife =
-            prevLivesRef.current !== null && player.lives < prevLivesRef.current;
+          const justDoubleJumped = !player.on_ground && player.jumps_used === 1 && anim.prevJumpsUsed === 0;
+          const lostLife = prevLivesRef.current !== null && player.lives < prevLivesRef.current;
 
           if (justLanded) sfx.land();
           if (justDied) sfx.death();
@@ -1446,7 +1401,7 @@ export default function App() {
 
         // Raio exibido e buff ativo (Tanque dobra o raio visual).
         const buff = player.buff || null;
-        const dispRadius = buff === 'red_mushroom' ? playerRadius * 2 : playerRadius;
+        const dispRadius = buff === "red_mushroom" ? playerRadius * 2 : playerRadius;
 
         if (player.is_dead) {
           drawGhost(ctx, player, dispRadius);
@@ -1464,12 +1419,7 @@ export default function App() {
           const vMinY = 0;
           const vMaxY = arenaH;
 
-          if (
-            player.x < vMinX ||
-            player.x > vMaxX ||
-            player.y < vMinY ||
-            player.y > vMaxY
-          ) {
+          if (player.x < vMinX || player.x > vMaxX || player.y < vMinY || player.y > vMaxY) {
             const pad = 26;
             const clampX = Math.max(vMinX + pad, Math.min(vMaxX - pad, player.x));
             const clampY = Math.max(vMinY + pad, Math.min(vMaxY - pad, player.y));
@@ -1482,9 +1432,9 @@ export default function App() {
             ctx.save();
             ctx.translate(tipX, tipY);
             ctx.rotate(angle);
-            ctx.shadowColor = '#ffffff';
+            ctx.shadowColor = "#ffffff";
             ctx.shadowBlur = 10;
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = "#ffffff";
             ctx.beginPath();
             ctx.moveTo(size, 0);
             ctx.lineTo(-size * 0.6, -size * 0.7);
@@ -1501,35 +1451,30 @@ export default function App() {
           const maxCd = cfg.dash_cooldown || 1.5;
           const barW = dispRadius * 2;
           const barY = player.y + dispRadius + 8;
-          ctx.fillStyle = 'rgba(90,70,40,0.25)';
+          ctx.fillStyle = "rgba(90,70,40,0.25)";
           ctx.fillRect(player.x - dispRadius, barY, barW, 5);
           ctx.fillStyle = cd > 0 ? PALETTE.amber : PALETTE.goldStrong;
-          ctx.fillRect(
-            player.x - dispRadius,
-            barY,
-            barW * Math.max(0, 1 - cd / maxCd),
-            5
-          );
+          ctx.fillRect(player.x - dispRadius, barY, barW * Math.max(0, 1 - cd / maxCd), 5);
         }
 
         // Barra do tempo restante do buff (apenas para o próprio jogador)
         if (player.id === myPlayerId && buff && !player.is_dead) {
           const remaining = Math.max(0, player.buff_remaining || 0);
           const duration =
-            buff === 'red_mushroom'
+            buff === "red_mushroom"
               ? cfg.red_duration || 8
-              : buff === 'purple_mushroom'
+              : buff === "purple_mushroom"
                 ? cfg.purple_duration || 6
                 : cfg.blue_duration || 8;
           const barW = dispRadius * 2;
           const barY = player.y + dispRadius + 15;
           const frac = Math.max(0, Math.min(1, remaining / duration));
-          ctx.fillStyle = 'rgba(90,70,40,0.25)';
+          ctx.fillStyle = "rgba(90,70,40,0.25)";
           ctx.fillRect(player.x - dispRadius, barY, barW, 5);
           ctx.fillStyle =
-            buff === 'red_mushroom'
+            buff === "red_mushroom"
               ? PALETTE.redMushDark
-              : buff === 'purple_mushroom'
+              : buff === "purple_mushroom"
                 ? PALETTE.purpleMushDark
                 : PALETTE.crystalMid;
           ctx.fillRect(player.x - dispRadius, barY, barW * frac, 5);
@@ -1545,8 +1490,8 @@ export default function App() {
           const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
           const dist = Math.hypot(a.x - b.x, a.y - b.y);
           const prev = impactsRef.current[key] ?? Infinity;
-          const rA = (a.buff === 'red_mushroom' ? playerRadius * 2 : playerRadius);
-          const rB = (b.buff === 'red_mushroom' ? playerRadius * 2 : playerRadius);
+          const rA = a.buff === "red_mushroom" ? playerRadius * 2 : playerRadius;
+          const rB = b.buff === "red_mushroom" ? playerRadius * 2 : playerRadius;
           const hitDist = rA + rB + 2;
           if (dist < hitDist && prev >= hitDist) {
             sfx.hit();
@@ -1558,7 +1503,7 @@ export default function App() {
         }
       }
       Object.keys(impactsRef.current).forEach((key) => {
-        const [ida, idb] = key.split('|');
+        const [ida, idb] = key.split("|");
         const found = players.some((p) => p.id === ida) && players.some((p) => p.id === idb);
         if (!found) delete impactsRef.current[key];
       });
@@ -1586,7 +1531,7 @@ export default function App() {
         // Garante array (o backend pode responder [] ou um objeto de erro).
         setScores(Array.isArray(data) ? data : []);
       } catch (err) {
-        console.error('Erro ao buscar scores', err);
+        console.error("Erro ao buscar scores", err);
       }
     };
 
@@ -1604,28 +1549,28 @@ export default function App() {
   }, [ui.myPlayer]);
 
   const overlaySx = {
-    position: 'absolute',
+    position: "absolute",
     inset: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 2,
     bgcolor: PALETTE.creamOverlay,
-    textAlign: 'center',
+    textAlign: "center",
     p: 3,
   };
 
   // Botão de controle de toque (mobile): alvo grande, sem zoom/scroll.
   const touchBtnSx = {
-    pointerEvents: 'auto',
+    pointerEvents: "auto",
     minWidth: 60,
     minHeight: 60,
-    fontSize: '1.4rem',
+    fontSize: "1.4rem",
     borderRadius: 3,
-    touchAction: 'none',
-    userSelect: 'none',
-    boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+    touchAction: "none",
+    userSelect: "none",
+    boxShadow: "0 4px 14px rgba(0,0,0,0.35)",
   };
 
   // =======================
@@ -1633,100 +1578,92 @@ export default function App() {
   // =======================
   // Tela de carregamento/erro enquanto o backend não confirma estar no ar
   // =======================
-  if (backendStatus !== 'ready') {
-    const isError = backendStatus === 'error';
+  if (backendStatus !== "ready") {
+    const isError = backendStatus === "error";
     const showRotate = isTouch && !isLandscape;
     return (
       <Box
         sx={{
-          height: '100dvh',
-          width: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
+          height: "100dvh",
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
           gap: 3,
           p: 3,
-          textAlign: 'center',
-          position: 'relative',
-          overflow: 'hidden',
+          textAlign: "center",
+          position: "relative",
+          overflow: "hidden",
         }}
       >
         {/* Fundo integral: imagem de carregamento cobre 100% da tela */}
         <Box
           sx={{
-            position: 'absolute',
+            position: "absolute",
             inset: 0,
             backgroundImage: `url(${carregamentoImg})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
+            backgroundSize: "cover",
+            backgroundPosition: "center",
           }}
         />
         {/* Overlay translúcido para legibilidade do texto */}
         <Box
           sx={{
-            position: 'absolute',
+            position: "absolute",
             inset: 0,
-            background: 'rgba(0,0,0,0.32)',
+            background: "rgba(0,0,0,0.32)",
           }}
         />
         <Button
           variant="outlined"
           size="small"
           sx={{
-            position: 'absolute',
+            position: "absolute",
             zIndex: 2,
-            top: 'calc(12px + env(safe-area-inset-top))',
-            right: 'calc(12px + env(safe-area-inset-right))',
+            top: "calc(12px + env(safe-area-inset-top))",
+            right: "calc(12px + env(safe-area-inset-right))",
             minWidth: 52,
-            color: '#ffffff',
-            borderColor: 'rgba(255,255,255,0.7)',
-            bgcolor: 'rgba(0,0,0,0.25)',
+            color: "#ffffff",
+            borderColor: "rgba(255,255,255,0.7)",
+            bgcolor: "rgba(0,0,0,0.25)",
           }}
           onClick={toggleLang}
         >
-          {lang === 'pt' ? 'EN' : 'PT'}
+          {lang === "pt" ? "EN" : "PT"}
         </Button>
         {showRotate ? (
           <>
-            <Typography
-              variant="h5"
-              sx={{ zIndex: 1, color: '#ffffff', fontWeight: 800 }}
-            >
+            <Typography variant="h5" sx={{ zIndex: 1, color: "#ffffff", fontWeight: 800 }}>
               ↔
             </Typography>
-            <Typography
-              variant="h6"
-              sx={{ zIndex: 1, color: '#ffffff', fontWeight: 700 }}
-            >
-              {t('loading.rotate')}
+            <Typography variant="h6" sx={{ zIndex: 1, color: "#ffffff", fontWeight: 700 }}>
+              {t("loading.rotate")}
             </Typography>
           </>
         ) : (
           <>
-            <Box sx={{ zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+            <Box sx={{ zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
               {isError ? (
                 <>
                   <Typography variant="h4" color="#ffffff" fontWeight={800}>
-                    {t('loading.errorTitle')}
+                    {t("loading.errorTitle")}
                   </Typography>
-                  <Typography color="rgba(255,255,255,0.85)">
-                    {t('loading.errorMsg')}
-                  </Typography>
+                  <Typography color="rgba(255,255,255,0.85)">{t("loading.errorMsg")}</Typography>
                   <Button
                     variant="contained"
                     size="large"
-                    sx={{ bgcolor: PALETTE.olive, '&:hover': { bgcolor: '#5f6d30' } }}
+                    sx={{ bgcolor: PALETTE.olive, "&:hover": { bgcolor: "#5f6d30" } }}
                     onClick={checkBackend}
                   >
-                    {t('loading.retry')}
+                    {t("loading.retry")}
                   </Button>
                 </>
               ) : (
                 <>
                   <CircularProgress sx={{ color: PALETTE.goldStrong }} size={52} />
                   <Typography variant="h6" color="#ffffff" fontWeight={700}>
-                    {t('loading.searching')}
+                    {t("loading.searching")}
                   </Typography>
                 </>
               )}
@@ -1740,39 +1677,38 @@ export default function App() {
   return (
     <Box
       sx={{
-        height: '100dvh',
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        background:
-          'linear-gradient(180deg, #fdf0d8 0%, #f6e3c5 45%, #efc58b 100%)',
+        height: "100dvh",
+        width: "100%",
+        display: "flex",
+        flexDirection: "column",
+        background: "linear-gradient(180deg, #fdf0d8 0%, #f6e3c5 45%, #efc58b 100%)",
       }}
     >
-        <Container
-          maxWidth={false}
-          disableGutters
-          sx={{
-            maxWidth: '1680px',
-            mx: 'auto',
-            px: { xs: isTouch && gameStarted ? 0 : 1.5, md: 2 },
-            py: { xs: isTouch && gameStarted ? 0 : 2, md: 2 },
-            display: 'flex',
-            flexDirection: 'column',
-            flexGrow: 1,
-            minHeight: 0,
-          }}
-        >
+      <Container
+        maxWidth={false}
+        disableGutters
+        sx={{
+          maxWidth: "1680px",
+          mx: "auto",
+          px: { xs: isTouch && gameStarted ? 0 : 1.5, md: 2 },
+          py: { xs: isTouch && gameStarted ? 0 : 2, md: 2 },
+          display: "flex",
+          flexDirection: "column",
+          flexGrow: 1,
+          minHeight: 0,
+        }}
+      >
         <img
           src="/logo.jpeg"
           alt="SURVIVE THE DESTRUCTION"
           style={{
-            display: gameStarted ? 'none' : 'block',
-            margin: '0 auto',
-            maxHeight: '14dvh',
-            width: 'auto',
-            objectFit: 'contain',
+            display: gameStarted ? "none" : "block",
+            margin: "0 auto",
+            maxHeight: "14dvh",
+            width: "auto",
+            objectFit: "contain",
             borderRadius: 12,
-            boxShadow: '0 10px 24px rgba(90,70,40,0.25)',
+            boxShadow: "0 10px 24px rgba(90,70,40,0.25)",
             mb: 1,
           }}
         />
@@ -1783,10 +1719,10 @@ export default function App() {
             mb: 2,
             fontWeight: 800,
             color: PALETTE.textBrown,
-            background: 'linear-gradient(90deg, #d99a2b, #c96f4a)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            display: { xs: gameStarted ? 'none' : 'block', md: 'block' },
+            background: "linear-gradient(90deg, #d99a2b, #c96f4a)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            display: { xs: gameStarted ? "none" : "block", md: "block" },
           }}
         >
           SURVIVE THE DESTRUCTION
@@ -1794,28 +1730,28 @@ export default function App() {
 
         <Box
           sx={{
-            display: 'flex',
-            flexDirection: 'row',
+            display: "flex",
+            flexDirection: "row",
             gap: 3,
-            alignItems: 'stretch',
+            alignItems: "stretch",
             flexGrow: 1,
             minHeight: 0,
           }}
         >
-          <Box sx={{ flex: '1 1 auto', minWidth: 0, display: 'flex', justifyContent: 'center' }}>
+          <Box sx={{ flex: "1 1 auto", minWidth: 0, display: "flex", justifyContent: "center" }}>
             <Paper
               sx={{
-                position: 'relative',
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '100%',
+                position: "relative",
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "100%",
                 borderRadius: 4,
-                overflow: 'hidden',
-                border: isTouch && gameStarted ? 'none' : `2px solid ${PALETTE.borderSoft}`,
+                overflow: "hidden",
+                border: isTouch && gameStarted ? "none" : `2px solid ${PALETTE.borderSoft}`,
                 bgcolor: PALETTE.skyTop,
-                boxShadow: '0 18px 40px rgba(90,70,40,0.18)',
+                boxShadow: "0 18px 40px rgba(90,70,40,0.18)",
               }}
             >
               <canvas
@@ -1824,11 +1760,11 @@ export default function App() {
                 width={arenaW}
                 height={arenaH}
                 style={{
-                  display: 'block',
-                  width: 'auto',
-                  height: 'auto',
-                  maxWidth: '100%',
-                  maxHeight: '100%',
+                  display: "block",
+                  width: "auto",
+                  height: "auto",
+                  maxWidth: "100%",
+                  maxHeight: "100%",
                 }}
               />
 
@@ -1838,66 +1774,66 @@ export default function App() {
                     variant="outlined"
                     size="small"
                     sx={{
-                      position: 'absolute',
-                      top: 'calc(8px + env(safe-area-inset-top))',
-                      right: 'calc(8px + env(safe-area-inset-right))',
+                      position: "absolute",
+                      top: "calc(8px + env(safe-area-inset-top))",
+                      right: "calc(8px + env(safe-area-inset-right))",
                       minWidth: 52,
                       color: PALETTE.textBrown,
                       borderColor: PALETTE.borderSoft,
                     }}
                     onClick={toggleLang}
                   >
-                    {lang === 'pt' ? 'EN' : 'PT'}
+                    {lang === "pt" ? "EN" : "PT"}
                   </Button>
                   <Typography variant="h5" color={PALETTE.terracottaStrong} fontWeight={700}>
-                    {t('start.chooseName')}
+                    {t("start.chooseName")}
                   </Typography>
                   <TextField
                     value={nickname}
                     onChange={(e) => setNickname(e.target.value)}
                     inputProps={{ maxLength: 20 }}
                     size="small"
-                    sx={{ width: 260, bgcolor: 'rgba(255,255,255,0.6)', borderRadius: 2 }}
+                    sx={{ width: 260, bgcolor: "rgba(255,255,255,0.6)", borderRadius: 2 }}
                   />
                   <Box
                     sx={{
-                      display: 'flex',
-                      alignItems: 'center',
+                      display: "flex",
+                      alignItems: "center",
                       gap: 1.5,
-                      bgcolor: 'rgba(255,255,255,0.6)',
+                      bgcolor: "rgba(255,255,255,0.6)",
                       borderRadius: 2,
                       px: 1.5,
                       py: 0.75,
                     }}
                   >
                     <Typography variant="body2" color={PALETTE.textSoft}>
-                      {t('start.ballColor')}
+                      {t("start.ballColor")}
                     </Typography>
                     <input
                       type="color"
                       value={ballColor}
                       onChange={(e) => setBallColor(e.target.value)}
-                      aria-label={t('start.ballColor')}
+                      aria-label={t("start.ballColor")}
                       style={{
                         width: 44,
                         height: 44,
                         padding: 0,
-                        border: 'none',
-                        background: 'none',
-                        cursor: 'pointer',
+                        border: "none",
+                        background: "none",
+                        cursor: "pointer",
                       }}
                     />
                   </Box>
                   <Button
                     variant="contained"
                     size="large"
-                    sx={{ bgcolor: PALETTE.olive, '&:hover': { bgcolor: '#5f6d30' } }}
+                    sx={{ bgcolor: PALETTE.olive, "&:hover": { bgcolor: "#5f6d30" } }}
                     onClick={handleStartGame}
                   >
-                    {t('start.play')}
+                    {t("start.play")}
                   </Button>
                   <Typography variant="body2" color={PALETTE.textSoft}>
-                    {t('start.instructions')}
+                    {t("start.instructions")}
                   </Typography>
                 </Box>
               )}
@@ -1905,14 +1841,9 @@ export default function App() {
               {gameStarted && ui.round_over && !deathPrompt && (
                 <Box sx={overlaySx}>
                   <Typography variant="h4" color={PALETTE.fallingDark} fontWeight={800}>
-                    {t('game.roundOver')}
+                    {t("game.roundOver")}
                   </Typography>
-                  <Typography
-                    variant="h1"
-                    color={PALETTE.goldStrong}
-                    fontWeight={900}
-                    sx={{ fontSize: '6rem' }}
-                  >
+                  <Typography variant="h1" color={PALETTE.goldStrong} fontWeight={900} sx={{ fontSize: "6rem" }}>
                     {ui.countdown}
                   </Typography>
                 </Box>
@@ -1921,14 +1852,9 @@ export default function App() {
               {gameStarted && !ui.round_over && !deathPrompt && ui.myPlayer?.respawn_left > 0 && (
                 <Box sx={overlaySx}>
                   <Typography variant="h4" color={PALETTE.fallingDark} fontWeight={800}>
-                    {t('game.reviving')}
+                    {t("game.reviving")}
                   </Typography>
-                  <Typography
-                    variant="h1"
-                    color={PALETTE.goldStrong}
-                    fontWeight={900}
-                    sx={{ fontSize: '6rem' }}
-                  >
+                  <Typography variant="h1" color={PALETTE.goldStrong} fontWeight={900} sx={{ fontSize: "6rem" }}>
                     {ui.myPlayer.respawn_left}
                   </Typography>
                 </Box>
@@ -1938,58 +1864,41 @@ export default function App() {
                 <Box
                   sx={{
                     ...overlaySx,
-                    overflowY: 'auto',
-                    justifyContent: 'flex-start',
+                    overflowY: "auto",
+                    justifyContent: "flex-start",
                     gap: 1,
                   }}
                 >
-                  <Typography
-                    variant="h4"
-                    color={PALETTE.fallingDark}
-                    fontWeight={800}
-                  >
-                    {t('death.title')}
+                  <Typography variant="h4" color={PALETTE.fallingDark} fontWeight={800}>
+                    {t("death.title")}
                   </Typography>
 
                   {deathInfo && deathInfo.pos > 0 && (
-                    <Typography
-                      variant="h6"
-                      color={PALETTE.goldStrong}
-                      fontWeight={800}
-                    >
-                      {t('death.placed', {
+                    <Typography variant="h6" color={PALETTE.goldStrong} fontWeight={800}>
+                      {t("death.placed", {
                         pos: deathInfo.pos,
                         total: deathInfo.ranking.length,
-                        players: t(
-                          deathInfo.ranking.length === 1
-                            ? 'death.playersOne'
-                            : 'death.playersMany'
-                        ),
+                        players: t(deathInfo.ranking.length === 1 ? "death.playersOne" : "death.playersMany"),
                       })}
                     </Typography>
                   )}
 
                   <Typography variant="body2" color={PALETTE.textSoft}>
-                    {t('death.timeSurvived', { time: deathInfo?.score ?? 0 })}
+                    {t("death.timeSurvived", { time: deathInfo?.score ?? 0 })}
                   </Typography>
                   <Typography variant="body2" color={PALETTE.textSoft}>
-                    {t('death.livesGone')}
+                    {t("death.livesGone")}
                   </Typography>
 
-                  <Typography
-                    variant="body1"
-                    color={PALETTE.textBrown}
-                    fontWeight={700}
-                    sx={{ mt: 1 }}
-                  >
-                    {t('death.anotherMatch')}
+                  <Typography variant="body1" color={PALETTE.textBrown} fontWeight={700} sx={{ mt: 1 }}>
+                    {t("death.anotherMatch")}
                   </Typography>
                   <Box
                     sx={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
+                      display: "flex",
+                      flexWrap: "wrap",
                       gap: 1.5,
-                      width: '100%',
+                      width: "100%",
                       mt: 0.5,
                     }}
                   >
@@ -2000,7 +1909,7 @@ export default function App() {
                         flex: 1,
                         minWidth: 180,
                         bgcolor: PALETTE.olive,
-                        '&:hover': { bgcolor: '#5f6d30' },
+                        "&:hover": { bgcolor: "#5f6d30" },
                       }}
                       onClick={() => {
                         sendRestart();
@@ -2008,7 +1917,7 @@ export default function App() {
                       }}
                       disabled={!ui.aliveAny}
                     >
-                      {t('death.retry')}
+                      {t("death.retry")}
                     </Button>
                     <Button
                       variant="outlined"
@@ -2018,14 +1927,14 @@ export default function App() {
                         minWidth: 180,
                         color: PALETTE.terracottaStrong,
                         borderColor: PALETTE.terracottaStrong,
-                        '&:hover': {
+                        "&:hover": {
                           borderColor: PALETTE.terracottaStrong,
-                          bgcolor: 'rgba(201,111,74,0.08)',
+                          bgcolor: "rgba(201,111,74,0.08)",
                         },
                       }}
                       onClick={startNewMatch}
                     >
-                      {t('death.otherMatch')}
+                      {t("death.otherMatch")}
                     </Button>
                     <Button
                       variant="outlined"
@@ -2035,148 +1944,127 @@ export default function App() {
                         minWidth: 180,
                         color: PALETTE.textSoft,
                         borderColor: PALETTE.textSoft,
-                        '&:hover': {
+                        "&:hover": {
                           borderColor: PALETTE.textSoft,
-                          bgcolor: 'rgba(120,105,80,0.08)',
+                          bgcolor: "rgba(120,105,80,0.08)",
                         },
                       }}
                       onClick={() => setDeathPrompt(false)}
                     >
-                      {t('death.continue')}
+                      {t("death.continue")}
                     </Button>
                   </Box>
 
-                    <Paper
-                      elevation={0}
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      width: "100%",
+                      maxWidth: 480,
+                      bgcolor: "rgba(240,224,196,0.55)",
+                      borderRadius: 3,
+                      p: 1.5,
+                      mt: 1,
+                    }}
+                  >
+                    <Typography variant="subtitle2" fontWeight={700} color={PALETTE.textBrown}>
+                      {t("death.ranking")}
+                    </Typography>
+                    <List dense>
+                      {(deathInfo?.ranking ?? matchRanking).slice(0, 10).map((p, i) => (
+                        <ListItem
+                          key={p.id}
+                          sx={{
+                            bgcolor: p.id === ui.myPlayer.id ? "rgba(217,154,43,0.28)" : "transparent",
+                            borderRadius: 2,
+                          }}
+                        >
+                          <Chip label={i + 1} size="small" sx={{ mr: 1 }} color={i < 3 ? "warning" : "default"} />
+                          <ListItemText
+                            primary={p.name || `Player_${p.id.slice(-4)}`}
+                            primaryTypographyProps={{
+                              fontWeight: p.id === ui.myPlayer.id ? 800 : 400,
+                            }}
+                          />
+                          <Typography color={PALETTE.goldStrong} fontWeight="bold">
+                            {p.score}s
+                          </Typography>
+                        </ListItem>
+                      ))}
+                    </List>
+                  </Paper>
+
+                  {scores.length > 0 && (
+                    <Box
                       sx={{
-                        width: '100%',
+                        width: "100%",
                         maxWidth: 480,
-                        bgcolor: 'rgba(240,224,196,0.55)',
-                        borderRadius: 3,
-                        p: 1.5,
                         mt: 1,
                       }}
                     >
-                      <Typography
-                        variant="subtitle2"
-                        fontWeight={700}
-                        color={PALETTE.textBrown}
-                      >
-                        {t('death.ranking')}
-                      </Typography>
-                      <List dense>
-                        {(deathInfo?.ranking ?? matchRanking).slice(0, 10).map((p, i) => (
-                          <ListItem
-                            key={p.id}
-                            sx={{
-                              bgcolor:
-                                p.id === ui.myPlayer.id
-                                  ? 'rgba(217,154,43,0.28)'
-                                  : 'transparent',
-                              borderRadius: 2,
-                            }}
-                          >
-                            <Chip
-                              label={i + 1}
-                              size="small"
-                              sx={{ mr: 1 }}
-                              color={i < 3 ? 'warning' : 'default'}
-                            />
-                            <ListItemText
-                              primary={
-                                p.name || `Player_${p.id.slice(-4)}`
-                              }
-                              primaryTypographyProps={{
-                                fontWeight:
-                                  p.id === ui.myPlayer.id ? 800 : 400,
-                              }}
-                            />
-                            <Typography
-                              color={PALETTE.goldStrong}
-                              fontWeight="bold"
-                            >
-                              {p.score}s
-                            </Typography>
-                          </ListItem>
-                        ))}
-                      </List>
-                    </Paper>
-
-                    {scores.length > 0 && (
-                      <Box
-                        sx={{
-                          width: '100%',
-                          maxWidth: 480,
-                          mt: 1,
-                        }}
-                      >
-                        <Leaderboard scores={scores} highlightName={nickname} lang={lang} />
-                      </Box>
-                    )}
-                  </Box>
-                )}
+                      <Leaderboard scores={scores} highlightName={nickname} lang={lang} />
+                    </Box>
+                  )}
+                </Box>
+              )}
 
               {isTouch && gameStarted && (
-                <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                <Box sx={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
                   {/* HUD compacto mobile */}
                   <Box
                     sx={{
-                      position: 'absolute',
+                      position: "absolute",
                       top: 0,
                       left: 0,
-                      display: 'flex',
+                      display: "flex",
                       gap: 1,
-                      pt: 'calc(10px + env(safe-area-inset-top))',
-                      pl: 'calc(10px + env(safe-area-inset-left))',
+                      pt: "calc(10px + env(safe-area-inset-top))",
+                      pl: "calc(10px + env(safe-area-inset-left))",
                       pr: 1,
-                      maxWidth: '70%',
+                      maxWidth: "70%",
                     }}
                   >
                     <Box
                       sx={{
-                        bgcolor: 'rgba(90,70,40,0.55)',
-                        color: '#fff',
+                        bgcolor: "rgba(90,70,40,0.55)",
+                        color: "#fff",
                         borderRadius: 2,
                         px: 1.25,
                         py: 1,
-                        fontSize: '0.85rem',
+                        fontSize: "0.85rem",
                         lineHeight: 1.5,
                         fontWeight: 700,
                       }}
                     >
+                      <Box component="div">⏱ {ui.myPlayer ? `${ui.myPlayer.score}s` : "0s"}</Box>
+                      <Box component="div">{"❤".repeat(ui.myPlayer?.lives ?? cfg.max_lives ?? 3) || "0"}</Box>
                       <Box component="div">
-                        ⏱ {ui.myPlayer ? `${ui.myPlayer.score}s` : '0s'}
-                      </Box>
-                      <Box component="div">
-                        {'❤'.repeat(ui.myPlayer?.lives ?? cfg.max_lives ?? 3) ||
-                          '0'}
-                      </Box>
-                      <Box component="div">
-                        {t('hud.buff')}{' '}
+                        {t("hud.buff")}{" "}
                         {ui.myPlayer?.buff
-                          ? ui.myPlayer.buff === 'red_mushroom'
-                            ? '🟥'
-                            : ui.myPlayer.buff === 'purple_mushroom'
-                              ? '🟪'
-                              : '🟦'
-                          : '—'}
+                          ? ui.myPlayer.buff === "red_mushroom"
+                            ? "🟥"
+                            : ui.myPlayer.buff === "purple_mushroom"
+                              ? "🟪"
+                              : "🟦"
+                          : "—"}
                       </Box>
-                      <Box component="div">{t('hud.alive')} {ui.aliveCount}</Box>
+                      <Box component="div">
+                        {t("hud.alive")} {ui.aliveCount}
+                      </Box>
                       {ui.room_id && (
-                        <Box component="div" sx={{ fontSize: '0.72rem', opacity: 0.85 }}>
-                          {t('hud.room')} {ui.room_id.slice(-12)} · {ui.room_players}/{ui.room_capacity}
+                        <Box component="div" sx={{ fontSize: "0.72rem", opacity: 0.85 }}>
+                          {t("hud.room")} {ui.room_id.slice(-12)} · {ui.room_players}/{ui.room_capacity}
                         </Box>
                       )}
                     </Box>
                     {matchRanking.length > 0 && (
                       <Box
                         sx={{
-                          bgcolor: 'rgba(90,70,40,0.55)',
-                          color: '#fff',
+                          bgcolor: "rgba(90,70,40,0.55)",
+                          color: "#fff",
                           borderRadius: 2,
                           px: 1.25,
                           py: 1,
-                          fontSize: '0.75rem',
+                          fontSize: "0.75rem",
                           lineHeight: 1.5,
                         }}
                       >
@@ -2185,12 +2073,10 @@ export default function App() {
                             component="div"
                             key={p.id}
                             sx={{
-                              fontWeight:
-                                p.id === ui.myPlayer?.id ? 800 : 400,
+                              fontWeight: p.id === ui.myPlayer?.id ? 800 : 400,
                             }}
                           >
-                            {i + 1}º {p.name || `Player_${p.id.slice(-4)}`}{' '}
-                            {p.score}s
+                            {i + 1}º {p.name || `Player_${p.id.slice(-4)}`} {p.score}s
                           </Box>
                         ))}
                       </Box>
@@ -2200,39 +2086,39 @@ export default function App() {
                   {/* Botões superiores: idioma, sair da tela cheia, sair da partida */}
                   <Box
                     sx={{
-                      position: 'absolute',
-                      top: 'calc(10px + env(safe-area-inset-top))',
-                      right: 'calc(10px + env(safe-area-inset-right))',
-                      display: 'flex',
+                      position: "absolute",
+                      top: "calc(10px + env(safe-area-inset-top))",
+                      right: "calc(10px + env(safe-area-inset-right))",
+                      display: "flex",
                       gap: 1,
-                      pointerEvents: 'none',
+                      pointerEvents: "none",
                     }}
                   >
                     <Button
                       variant="contained"
                       size="small"
                       sx={{
-                        pointerEvents: 'auto',
+                        pointerEvents: "auto",
                         minWidth: 44,
                         minHeight: 44,
-                        fontSize: '0.8rem',
-                        bgcolor: 'rgba(90,70,40,0.55)',
-                        '&:hover': { bgcolor: 'rgba(90,70,40,0.8)' },
+                        fontSize: "0.8rem",
+                        bgcolor: "rgba(90,70,40,0.55)",
+                        "&:hover": { bgcolor: "rgba(90,70,40,0.8)" },
                       }}
                       onClick={toggleLang}
                     >
-                      {lang === 'pt' ? 'EN' : 'PT'}
+                      {lang === "pt" ? "EN" : "PT"}
                     </Button>
                     <Button
                       variant="contained"
                       size="small"
                       sx={{
-                        pointerEvents: 'auto',
+                        pointerEvents: "auto",
                         minWidth: 44,
                         minHeight: 44,
-                        fontSize: '1.1rem',
-                        bgcolor: 'rgba(90,70,40,0.55)',
-                        '&:hover': { bgcolor: 'rgba(90,70,40,0.8)' },
+                        fontSize: "1.1rem",
+                        bgcolor: "rgba(90,70,40,0.55)",
+                        "&:hover": { bgcolor: "rgba(90,70,40,0.8)" },
                       }}
                       onClick={exitFullscreen}
                     >
@@ -2242,44 +2128,44 @@ export default function App() {
                       variant="contained"
                       size="small"
                       sx={{
-                        pointerEvents: 'auto',
+                        pointerEvents: "auto",
                         minWidth: 44,
                         minHeight: 44,
-                        fontSize: '0.7rem',
+                        fontSize: "0.7rem",
                         px: 1,
-                        bgcolor: 'rgba(140,60,50,0.75)',
-                        '&:hover': { bgcolor: 'rgba(140,60,50,0.95)' },
+                        bgcolor: "rgba(140,60,50,0.75)",
+                        "&:hover": { bgcolor: "rgba(140,60,50,0.95)" },
                       }}
                       onClick={handleExit}
                     >
-                      {t('exit.mobile')}
+                      {t("exit.mobile")}
                     </Button>
                   </Box>
 
                   {/* Controles: ◀ ▶ à esquerda, ⬆ ⚡ à direita */}
                   <Box
                     sx={{
-                      position: 'absolute',
-                      bottom: 'calc(12px + env(safe-area-inset-bottom))',
-                      left: 'calc(12px + env(safe-area-inset-left))',
-                      right: 'calc(12px + env(safe-area-inset-right))',
-                      display: 'flex',
-                      alignItems: 'flex-end',
-                      justifyContent: 'space-between',
+                      position: "absolute",
+                      bottom: "calc(12px + env(safe-area-inset-bottom))",
+                      left: "calc(12px + env(safe-area-inset-left))",
+                      right: "calc(12px + env(safe-area-inset-right))",
+                      display: "flex",
+                      alignItems: "flex-end",
+                      justifyContent: "space-between",
                     }}
                   >
-                    <Box sx={{ display: 'flex', gap: 1.5 }}>
+                    <Box sx={{ display: "flex", gap: 1.5 }}>
                       <Button
                         variant="contained"
                         sx={{
                           ...touchBtnSx,
                           bgcolor: PALETTE.olive,
-                          '&:hover': { bgcolor: '#5f6d30' },
+                          "&:hover": { bgcolor: "#5f6d30" },
                         }}
-                        onPointerDown={touchPress('left')}
-                        onPointerUp={touchRelease('left')}
-                        onPointerLeave={touchRelease('left')}
-                        onPointerCancel={touchRelease('left')}
+                        onPointerDown={touchPress("left")}
+                        onPointerUp={touchRelease("left")}
+                        onPointerLeave={touchRelease("left")}
+                        onPointerCancel={touchRelease("left")}
                       >
                         ◀
                       </Button>
@@ -2288,28 +2174,28 @@ export default function App() {
                         sx={{
                           ...touchBtnSx,
                           bgcolor: PALETTE.olive,
-                          '&:hover': { bgcolor: '#5f6d30' },
+                          "&:hover": { bgcolor: "#5f6d30" },
                         }}
-                        onPointerDown={touchPress('right')}
-                        onPointerUp={touchRelease('right')}
-                        onPointerLeave={touchRelease('right')}
-                        onPointerCancel={touchRelease('right')}
+                        onPointerDown={touchPress("right")}
+                        onPointerUp={touchRelease("right")}
+                        onPointerLeave={touchRelease("right")}
+                        onPointerCancel={touchRelease("right")}
                       >
                         ▶
                       </Button>
                     </Box>
-                    <Box sx={{ display: 'flex', gap: 1.5 }}>
+                    <Box sx={{ display: "flex", gap: 1.5 }}>
                       <Button
                         variant="contained"
                         sx={{
                           ...touchBtnSx,
                           bgcolor: PALETTE.goldStrong,
-                          '&:hover': { bgcolor: '#c2851e' },
+                          "&:hover": { bgcolor: "#c2851e" },
                         }}
-                        onPointerDown={touchPress('jump')}
-                        onPointerUp={touchRelease('jump')}
-                        onPointerLeave={touchRelease('jump')}
-                        onPointerCancel={touchRelease('jump')}
+                        onPointerDown={touchPress("jump")}
+                        onPointerUp={touchRelease("jump")}
+                        onPointerLeave={touchRelease("jump")}
+                        onPointerCancel={touchRelease("jump")}
                       >
                         ⬆
                       </Button>
@@ -2318,12 +2204,12 @@ export default function App() {
                         sx={{
                           ...touchBtnSx,
                           bgcolor: PALETTE.terracottaStrong,
-                          '&:hover': { bgcolor: '#ab5a3c' },
+                          "&:hover": { bgcolor: "#ab5a3c" },
                         }}
-                        onPointerDown={touchPress('dash')}
-                        onPointerUp={touchRelease('dash')}
-                        onPointerLeave={touchRelease('dash')}
-                        onPointerCancel={touchRelease('dash')}
+                        onPointerDown={touchPress("dash")}
+                        onPointerUp={touchRelease("dash")}
+                        onPointerLeave={touchRelease("dash")}
+                        onPointerCancel={touchRelease("dash")}
                       >
                         ⚡
                       </Button>
@@ -2336,18 +2222,13 @@ export default function App() {
 
           <Box
             sx={{
-              display: { xs: 'none', md: 'block' },
-              flex: '0 0 300px',
+              display: { xs: "none", md: "block" },
+              flex: "0 0 300px",
               minWidth: 0,
-              height: '100%',
+              height: "100%",
             }}
           >
-            <Box
-              display="flex"
-              flexDirection="column"
-              gap={3}
-              sx={{ height: '100%', overflowY: 'auto' }}
-            >
+            <Box display="flex" flexDirection="column" gap={3} sx={{ height: "100%", overflowY: "auto" }}>
               <Leaderboard scores={scores} lang={lang} />
 
               <Paper
@@ -2356,56 +2237,57 @@ export default function App() {
                   borderRadius: 4,
                   bgcolor: PALETTE.cream,
                   border: `1px solid rgba(201,111,74,0.45)`,
-                  boxShadow: '0 10px 30px rgba(90,70,40,0.12)',
+                  boxShadow: "0 10px 30px rgba(90,70,40,0.12)",
                 }}
               >
                 <Typography variant="h6" color={PALETTE.textBrown}>
-                  {t('sidebar.status')}
+                  {t("sidebar.status")}
                 </Typography>
-                <Typography>{t('sidebar.name')} {nickname}</Typography>
                 <Typography>
-                  {t('sidebar.time')} {ui.myPlayer ? `${ui.myPlayer.score}s` : '0s'}
+                  {t("sidebar.name")} {nickname}
+                </Typography>
+                <Typography>
+                  {t("sidebar.time")} {ui.myPlayer ? `${ui.myPlayer.score}s` : "0s"}
                 </Typography>
                 <Typography color={PALETTE.goldStrong} fontWeight="bold">
-                  {t('sidebar.record')} {bestScore}s
-                </Typography>
-                <Typography>{t('sidebar.round')} {ui.round}</Typography>
-                <Typography>
-                  {t('sidebar.room')}{' '}
-                  {ui.room_id ? `${ui.room_id} · ${ui.room_players}/${ui.room_capacity}` : '—'}
-                </Typography>
-                <Typography>{t('sidebar.alive')} {ui.aliveCount}</Typography>
-                <Typography>
-                  {t('sidebar.nextDrop')}{' '}
-                  {ui.myPlayer && !ui.myPlayer.is_dead
-                    ? `${ui.drop_countdown.toFixed(1)}s`
-                    : '—'}
+                  {t("sidebar.record")} {bestScore}s
                 </Typography>
                 <Typography>
-                  {t('sidebar.buff')}{' '}
+                  {t("sidebar.round")} {ui.round}
+                </Typography>
+                <Typography>
+                  {t("sidebar.room")} {ui.room_id ? `${ui.room_id} · ${ui.room_players}/${ui.room_capacity}` : "—"}
+                </Typography>
+                <Typography>
+                  {t("sidebar.alive")} {ui.aliveCount}
+                </Typography>
+                <Typography>
+                  {t("sidebar.nextDrop")}{" "}
+                  {ui.myPlayer && !ui.myPlayer.is_dead ? `${ui.drop_countdown.toFixed(1)}s` : "—"}
+                </Typography>
+                <Typography>
+                  {t("sidebar.buff")}{" "}
                   {ui.myPlayer?.buff
-                    ? ui.myPlayer.buff === 'red_mushroom'
-                      ? `🟥 ${t('buff.tank')}`
-                      : ui.myPlayer.buff === 'purple_mushroom'
-                        ? `🟪 ${t('buff.speedster')}`
-                        : `🟦 ${t('buff.glider')}`
-                    : t('buff.none')}
+                    ? ui.myPlayer.buff === "red_mushroom"
+                      ? `🟥 ${t("buff.tank")}`
+                      : ui.myPlayer.buff === "purple_mushroom"
+                        ? `🟪 ${t("buff.speedster")}`
+                        : `🟦 ${t("buff.glider")}`
+                    : t("buff.none")}
                 </Typography>
                 <Typography>
-                  {t('sidebar.lives')}{' '}
-                  {'❤'.repeat(ui.myPlayer?.lives ?? cfg.max_lives ?? 3) ||
-                    '0'}
+                  {t("sidebar.lives")} {"❤".repeat(ui.myPlayer?.lives ?? cfg.max_lives ?? 3) || "0"}
                 </Typography>
                 {ui.myPlayer && ui.myPlayer.is_dead && (
-                  <Typography color="error.main">{t('sidebar.spectating')}</Typography>
+                  <Typography color="error.main">{t("sidebar.spectating")}</Typography>
                 )}
                 <Box
                   sx={{
                     mt: 1.5,
                     pt: 1.5,
                     borderTop: `1px dashed rgba(201,111,74,0.35)`,
-                    display: 'flex',
-                    flexDirection: 'column',
+                    display: "flex",
+                    flexDirection: "column",
                     gap: 1,
                   }}
                 >
@@ -2416,23 +2298,17 @@ export default function App() {
                     sx={{
                       color: PALETTE.textSoft,
                       borderColor: PALETTE.textSoft,
-                      '&:hover': {
+                      "&:hover": {
                         borderColor: PALETTE.textSoft,
-                        bgcolor: 'rgba(120,105,80,0.08)',
+                        bgcolor: "rgba(120,105,80,0.08)",
                       },
                     }}
                     onClick={handleExit}
                   >
-                    {t('exit.label')}
+                    {t("exit.label")}
                   </Button>
-                  <Button
-                    variant="text"
-                    size="small"
-                    fullWidth
-                    sx={{ color: PALETTE.textBrown }}
-                    onClick={toggleLang}
-                  >
-                    {lang === 'pt' ? 'EN' : 'PT'}
+                  <Button variant="text" size="small" fullWidth sx={{ color: PALETTE.textBrown }} onClick={toggleLang}>
+                    {lang === "pt" ? "EN" : "PT"}
                   </Button>
                 </Box>
               </Paper>
