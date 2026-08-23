@@ -105,8 +105,13 @@ func main() {
 	go hub.Run()
 
 	// 3. Configura todas as rotas do aplicativo, delegando ao pacote routes
+	rawOrigin := getenv("ALLOWED_ORIGINS", "http://localhost:5173")
+
+	// Limpa espaços e garante que não tenha a barra '/' no final
+	cleanOrigin := strings.TrimRight(strings.TrimSpace(rawOrigin), "/")
+
 	routes.InitRoutes(hub, routes.Config{
-		AllowedOrigins: getenv("ALLOWED_ORIGINS", "http://localhost:5173"),
+		AllowedOrigins: cleanOrigin,
 	})
 
 	// 4. Inicia o servidor HTTP com timeouts e desligamento gracioso.
