@@ -79,6 +79,8 @@ func getenv(key, fallback string) string {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	// 1. CONFIGURAÇÃO DO POSTGRESQL A PARTIR DE VARIÁVEIS DE AMBIENTE
 	if err := loadEnv(findEnvFile()); err != nil {
 		// O .env é opcional; as vars podem vir do ambiente do sistema.
@@ -102,7 +104,7 @@ func main() {
 	// 2. Cria e Inicia o Hub (o loop principal do jogo)
 	// Passa o serviço de placar para o Hub
 	hub := controller.NewHub(scoreService)
-	go hub.Run()
+	go hub.Run(ctx)
 
 	// 3. Configura todas as rotas do aplicativo, delegando ao pacote routes
 	rawOrigin := getenv("ALLOWED_ORIGINS", "http://localhost:5173")
@@ -110,7 +112,7 @@ func main() {
 	// Limpa espaços e garante que não tenha a barra '/' no final
 	cleanOrigin := strings.TrimRight(strings.TrimSpace(rawOrigin), "/")
 
-	routes.InitRoutes(hub, routes.Config{
+	handler := routes.NewHandler(hub, routes.Config{
 		AllowedOrigins: cleanOrigin,
 	})
 
@@ -126,7 +128,7 @@ func main() {
 	}
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           nil,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -139,14 +141,15 @@ func main() {
 	}()
 
 	// Aguarda SIGINT/SIGTERM para encerrar o servidor de forma graciosa.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	<-ctx.Done()
 
 	log.Println("Encerrando servidor...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Erro ao encerrar o servidor: %v", err)
+	}
+	if err := hub.Wait(shutdownCtx); err != nil {
+		log.Printf("Game shutdown timeout: %v", err)
 	}
 }

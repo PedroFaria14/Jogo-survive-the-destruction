@@ -10,6 +10,25 @@ import (
 	"github.com/gorilla/websocket" // Necessário para ReadMessage/WriteMessage
 )
 
+// Close encerra o transporte uma única vez, sem bloquear o loop do Hub.
+func (c *Client) Close() {
+	c.closeOnce.Do(func() {
+		c.closed.Store(true)
+		c.Hub.ConnCount.Add(-1)
+		_ = c.Conn.Close()
+	})
+}
+
+func (c *Client) disconnect() {
+	c.Close()
+	c.unregisterOnce.Do(func() {
+		select {
+		case c.Hub.Unregister <- c:
+		case <-c.Hub.stopping:
+		}
+	})
+}
+
 // Timeouts de conexão WebSocket: pings mantêm a conexão viva e detectam
 // conexões mortas (rede partida, máquina suspensa).
 const (
@@ -24,15 +43,10 @@ func ReadPump(c *Client) {
 		if r := recover(); r != nil {
 			log.Printf("PANIC capturado em ReadPump (%s): %v\n%s", c.PlayerID, r, debug.Stack())
 		}
-		c.closed.Store(true)
 		// Desregistra o cliente e fecha a conexão quando a função termina.
 		// closeOnce garante que isso aconteça exatamente uma vez (os dois
 		// pumps podem sair em qualquer ordem).
-		c.closeOnce.Do(func() {
-			c.Hub.ConnCount.Add(-1)
-			c.Hub.Unregister <- c
-			c.Conn.Close()
-		})
+		c.disconnect()
 	}()
 
 	// Limite de tamanho de mensagem (evita mensagens gigantes) e keepalive:
@@ -45,17 +59,25 @@ func ReadPump(c *Client) {
 
 	for {
 		// Lê a mensagem do cliente. O comando é o único tipo de mensagem esperado.
-		_, message, err := c.Conn.ReadMessage()
+		kind, message, err := c.Conn.ReadMessage()
 		if err != nil {
 			// Geralmente ocorre quando o cliente fecha a conexão ou há um erro de leitura.
-			log.Println("ReadPump error:", err)
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) && !c.closed.Load() {
+				log.Printf("websocket read failed: %v", err)
+			}
 			break
+		}
+		if kind != websocket.TextMessage {
+			continue
 		}
 
 		var cmd models.Command
 		err = json.Unmarshal(message, &cmd)
 		if err != nil {
 			log.Println("Invalid command format:", err)
+			continue
+		}
+		if cmd.Type != "join" && cmd.Type != "input" && cmd.Type != "restart" {
 			continue
 		}
 
@@ -65,7 +87,11 @@ func ReadPump(c *Client) {
 			Cmd:    cmd,
 		}
 		// Envia o comando para o Hub processar
-		c.Hub.Command <- playerCmd
+		select {
+		case c.Hub.Command <- playerCmd:
+		case <-c.Hub.stopping:
+			return
+		}
 	}
 }
 
@@ -77,17 +103,15 @@ func WritePump(c *Client) {
 			log.Printf("PANIC capturado em WritePump (%s): %v\n%s", c.PlayerID, r, debug.Stack())
 		}
 		ticker.Stop()
-		c.closed.Store(true)
 		// Encerra apenas uma vez, independentemente de qual pump sair primeiro.
-		c.closeOnce.Do(func() {
-			c.Hub.ConnCount.Add(-1)
-			c.Hub.Unregister <- c
-			c.Conn.Close()
-		})
+		c.disconnect()
 	}()
 
 	for {
 		select {
+		case <-c.Hub.stopping:
+			_ = c.Conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutdown"), time.Now().Add(writeWait))
+			return
 		case message, ok := <-c.Send:
 			_ = c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {

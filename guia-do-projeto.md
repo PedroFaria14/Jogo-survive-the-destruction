@@ -1,5 +1,7 @@
 # 📘 Guia do Projeto — SURVIVE THE DESTRUCTION
 
+> Fluxo atual: **home explicativa → personalização → carregamento/conexão → partida**. A home funciona sem servidor ligado. Consulte o [protocolo WebSocket](docs/websocket.md), a [avaliação de arquitetura](docs/arquitetura.md) e o [roteiro de demonstração com testes](docs/demonstracao.md).
+
 ## Descrição
 
 Jogo multiplayer em tempo real em que a arena de ilhas flutuantes é destruída aos poucos. O jogador controla uma bolinha que precisa pular entre as ilhas, coletar power-ups e empurrar oponentes, enquanto os blocos desaparecem debaixo dos pés. Quem sobreviver mais tempo vence.
@@ -10,7 +12,7 @@ Jogo multiplayer em tempo real em que a arena de ilhas flutuantes é destruída 
 - Escalar as ilhas antes que o mapa seja destruído.
 - Usar power-ups para virar Tanque, Velocista ou Planar.
 - Empurrar oponentes com o dash para eliminar a concorrência.
-- Acumular placar por tempo sobrevivido e aparecer no Top 10.
+- Acumular placar por tempo sobrevivido e aparecer no Top 10. volt
 
 ## Tecnologias
 
@@ -25,7 +27,7 @@ Jogo multiplayer em tempo real em que a arena de ilhas flutuantes é destruída 
 
 ### Pré-requisitos
 
-- Node.js 20+ e npm
+- Node.js 20.19+ ou 22.12+ (ou LTS mais nova) e npm
 - Go 1.25+
 - PostgreSQL acessível (local, Docker ou Neon)
 
@@ -62,8 +64,8 @@ Abra `http://localhost:5173`.
 
 1. Suba o backend (`go run .` em `backend/`).
 2. Suba o frontend (`npm run dev` em `frontend/`).
-3. Acesse a tela inicial, escolha o nome e a cor da bolinha.
-4. Clique em **INICIAR JOGO** e sobreviva à destruição.
+3. Acesse a home, leia a ideia e clique em **Jogar agora**.
+4. Escolha o nome/cor, clique em **Entrar na arena** e aguarde a conexão. Cada sala comporta até cinco jogadores.
 
 No celular, o jogo trava em **paisagem** e oferece controles de toque na tela. A orientação em paisagem também é aplicada à tela de carregamento, com aviso de rotação se o aparelho estiver em retrato.
 
@@ -102,7 +104,8 @@ npm run preview        # serve o build localmente
 
 ## Funcionalidades
 
-- **Multiplayer em tempo real** (WebSocket, sala única).
+- **Home explicativa PT/EN**, com apresentação técnica e personalização antes da conexão.
+- **Multiplayer em tempo real**, com salas independentes de até cinco jogadores.
 - **Arena procedural** — ilhas sorteadas a cada rodada.
 - **Destruição contínua** — um bloco é destruído a cada 3s (fica vermelho por 1s antes).
 - **Quadrado perdido** — plataforma extra dourada que aparece de vez em quando em posição aleatória.
@@ -119,12 +122,17 @@ npm run preview        # serve o build localmente
 ```text
 backend/
   main.go              # Bootstrap, env, HTTP e shutdown
-  controller/          # hub.go (loop do jogo) + client.go (WebSocket)
+  controller/          # hub.go (loop/salas), room.go (partida), client.go (WebSocket)
   models/              # movement.go (física/arena), powerup.go (buffs)
   routes/              # routes.go (rotas + CORS)
   service/             # poster.go (placar no PostgreSQL)
 frontend/
-  src/App.jsx          # UI, canvas, WebSocket, controles, telas
+  src/App.jsx          # Navegação home/jogo e idioma
+  src/Game.jsx         # Coordenação da cena, HUD e efeitos
+  src/components/      # Home e personalização
+  src/network/         # Transporte WebSocket e prontidão HTTP
+  src/hooks/           # Controles de teclado
+  src/renderer/        # Sprites Canvas
   src/sfx.js           # efeitos sonoros
   src/index.css        # estilos globais
   assets/              # imagens (telas de carregamento, etc.)

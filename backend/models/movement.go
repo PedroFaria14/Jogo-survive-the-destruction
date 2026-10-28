@@ -15,7 +15,7 @@ const (
 	ArenaWidth   = 800.0
 	ArenaHeight  = 1000.0 // 10 linhas: dá abismo real abaixo das ilhas flutuantes
 	TileSize     = 100.0  // Cada bloco da arena terá 100x100
-	PlayerRadius = 25.0  // Raio base da bola no frontend (buffs podem mudar)
+	PlayerRadius = 25.0   // Raio base da bola no frontend (buffs podem mudar)
 
 	// Constantes de Movimento e Física
 	MoveSpeed          = 8.0
@@ -111,41 +111,41 @@ type GameConfig struct {
 	MaxGapCols     int `json:"max_gap_cols"`
 
 	// Parâmetros dos power-ups
-	DropInterval  float64 `json:"powerup_interval"`  // Segundos entre drops
-	DropLifetime  float64 `json:"powerup_lifetime"`  // Segundos até o drop desparecer
-	RedDuration   float64 `json:"red_duration"`      // Duração do buff Tanque
+	DropInterval   float64 `json:"powerup_interval"` // Segundos entre drops
+	DropLifetime   float64 `json:"powerup_lifetime"` // Segundos até o drop desparecer
+	RedDuration    float64 `json:"red_duration"`     // Duração do buff Tanque
 	PurpleDuration float64 `json:"purple_duration"`  // Duração do buff Velocista
-	BlueDuration  float64 `json:"blue_duration"`     // Duração do buff Planar
+	BlueDuration   float64 `json:"blue_duration"`    // Duração do buff Planar
 }
 
 // GetGameConfig retorna as constantes de jogo para o frontend.
 func GetGameConfig() GameConfig {
 	return GameConfig{
-		ArenaWidth:    ArenaWidth,
-		ArenaHeight:   ArenaHeight,
-		TileSize:      TileSize,
-		PlayerRadius:  PlayerRadius,
-		MoveSpeed:     MoveSpeed,
-		JumpForce:     JumpForce,
-		Gravity:       Gravity,
-		BreakInterval: BreakInterval,
-		MaxAirJumps:   MaxAirJumps,
-		MaxLives:      MaxLives,
-		DashSpeed:     DashSpeed,
-		DashCooldown:  DashCooldown.Seconds(),
-		DashDuration:  DashDuration.Seconds(),
-		KnockbackDash: KnockbackDash,
-		Restitution:   Restitution,
-		MinIslands:    MinIslands,
-		MaxIslands:    MaxIslands,
+		ArenaWidth:     ArenaWidth,
+		ArenaHeight:    ArenaHeight,
+		TileSize:       TileSize,
+		PlayerRadius:   PlayerRadius,
+		MoveSpeed:      MoveSpeed,
+		JumpForce:      JumpForce,
+		Gravity:        Gravity,
+		BreakInterval:  BreakInterval,
+		MaxAirJumps:    MaxAirJumps,
+		MaxLives:       MaxLives,
+		DashSpeed:      DashSpeed,
+		DashCooldown:   DashCooldown.Seconds(),
+		DashDuration:   DashDuration.Seconds(),
+		KnockbackDash:  KnockbackDash,
+		Restitution:    Restitution,
+		MinIslands:     MinIslands,
+		MaxIslands:     MaxIslands,
 		IslandWidthMin: IslandWidthMin,
 		IslandWidthMax: IslandWidthMax,
-		MaxGapCols:    MaxGapCols,
-		DropInterval:  DropInterval.Seconds(),
-		DropLifetime:  DropLifetime.Seconds(),
-		RedDuration:   BuffRedDuration.Seconds(),
+		MaxGapCols:     MaxGapCols,
+		DropInterval:   DropInterval.Seconds(),
+		DropLifetime:   DropLifetime.Seconds(),
+		RedDuration:    BuffRedDuration.Seconds(),
 		PurpleDuration: BuffPurpleDuration.Seconds(),
-		BlueDuration:  BuffBlueDuration.Seconds(),
+		BlueDuration:   BuffBlueDuration.Seconds(),
 	}
 }
 
@@ -163,7 +163,7 @@ type ArenaTile struct {
 
 type Player struct {
 	ID         string  `json:"id"`
-	ConnID     string  `json:"conn_id"`
+	ConnID     string  `json:"-"` // Endereço de transporte é interno; nunca exposto aos outros jogadores.
 	Name       string  `json:"name"`
 	Color      string  `json:"color"` // Hex #RRGGBB da bolinha ("" = cor padrão)
 	X          float64 `json:"x"`
@@ -206,20 +206,20 @@ type Player struct {
 
 	// Respawn: cronômetro de 3,2,1 antes de voltar à arena. Enquanto ativo, o
 	// jogador fica fora de jogo (status de contagem) e não é simulado.
-	respawnAt    time.Time `json:"-"`
-	RespawnLeft  int       `json:"respawn_left"` // Segundos restantes p/ HUD (0 = não contando)
+	respawnAt   time.Time `json:"-"`
+	RespawnLeft int       `json:"respawn_left"` // Segundos restantes p/ HUD (0 = não contando)
 }
 
 type GameState struct {
-	Players    map[string]*Player    `json:"players"`
-	ArenaTiles map[string]*ArenaTile `json:"arena_tiles"`
-	PowerUps   map[string]*PowerUp   `json:"power_ups"`
-	Status     string                `json:"status"`
-	Round      int                   `json:"round"`      // Número da rodada atual
-	RoundOver  bool                  `json:"round_over"` // Rodada encerrada, aguardando reinício
-	Countdown  int                   `json:"countdown"`  // Segundos restantes para nova rodada
-	ArenaWidth float64               `json:"arena_width"`
-	ArenaHeight float64              `json:"arena_height"`
+	Players     map[string]*Player    `json:"players"`
+	ArenaTiles  map[string]*ArenaTile `json:"arena_tiles"`
+	PowerUps    map[string]*PowerUp   `json:"power_ups"`
+	Status      string                `json:"status"`
+	Round       int                   `json:"round"`      // Número da rodada atual
+	RoundOver   bool                  `json:"round_over"` // Rodada encerrada, aguardando reinício
+	Countdown   int                   `json:"countdown"`  // Segundos restantes para nova rodada
+	ArenaWidth  float64               `json:"arena_width"`
+	ArenaHeight float64               `json:"arena_height"`
 
 	// Power-ups
 	DropCountdown float64   `json:"drop_countdown"` // Segundos até o próximo drop (HUD)
@@ -228,9 +228,9 @@ type GameState struct {
 
 	SpawnPoints []SpawnPoint `json:"-"` // Pontos de spawn da rodada atual
 
-	lastBreakTime time.Time // Controla o temporizador de destruição
+	lastBreakTime  time.Time // Controla o temporizador de destruição
 	nextLostTileAt time.Time // Quando o próximo quadrado perdido aparece
-	nextPlayerID  int       // Contador monotônico para gerar IDs únicos
+	nextPlayerID   int       // Contador monotônico para gerar IDs únicos
 }
 
 // SpawnPoint é uma posição segura de respawn acima da ilha central.
@@ -264,15 +264,15 @@ func SanitizeColor(s string) string {
 
 func NewGameState() *GameState {
 	status := &GameState{
-		Players:       make(map[string]*Player),
-		ArenaTiles:    make(map[string]*ArenaTile),
-		PowerUps:      make(map[string]*PowerUp),
-		Status:        "waiting",
-		Round:         1,
-		lastBreakTime: time.Now(),
+		Players:        make(map[string]*Player),
+		ArenaTiles:     make(map[string]*ArenaTile),
+		PowerUps:       make(map[string]*PowerUp),
+		Status:         "waiting",
+		Round:          1,
+		lastBreakTime:  time.Now(),
 		nextLostTileAt: time.Now().Add(LostTileIntervalMin),
-		nextDropAt:    time.Now().Add(DropInterval),
-		DropCountdown: DropInterval.Seconds(),
+		nextDropAt:     time.Now().Add(DropInterval),
+		DropCountdown:  DropInterval.Seconds(),
 	}
 	status.generateArena()
 	return status
@@ -1123,11 +1123,11 @@ func (gs *GameState) SpawnLostTile(now time.Time) {
 			continue
 		}
 		gs.ArenaTiles[id] = &ArenaTile{
-			ID:        id,
-			X:         float64(c) * TileSize,
-			Y:         float64(r) * TileSize,
-			IsActive:  true,
-			Kind:      "lost",
+			ID:       id,
+			X:        float64(c) * TileSize,
+			Y:        float64(r) * TileSize,
+			IsActive: true,
+			Kind:     "lost",
 		}
 		interval := LostTileIntervalMin.Seconds() +
 			rand.Float64()*(LostTileIntervalMax-LostTileIntervalMin).Seconds()

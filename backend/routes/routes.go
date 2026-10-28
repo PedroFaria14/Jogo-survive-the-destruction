@@ -22,10 +22,11 @@ type Config struct {
 // handshakeLimiter limita tentativas de handshake do WebSocket por IP
 // (janela deslizante), protegendo contra abuso de conexões.
 type handshakeLimiter struct {
-	mu    sync.Mutex
-	perIP map[string][]time.Time
-	max   int
-	win   time.Duration
+	mu          sync.Mutex
+	perIP       map[string][]time.Time
+	max         int
+	win         time.Duration
+	nextCleanup time.Time
 }
 
 func newHandshakeLimiter(max int, win time.Duration) *handshakeLimiter {
@@ -42,6 +43,14 @@ func (l *handshakeLimiter) allow(ip string) bool {
 	defer l.mu.Unlock()
 	now := time.Now()
 	cutoff := now.Add(-l.win)
+	if !now.Before(l.nextCleanup) {
+		for key, attempts := range l.perIP {
+			if len(attempts) == 0 || !attempts[len(attempts)-1].After(cutoff) {
+				delete(l.perIP, key)
+			}
+		}
+		l.nextCleanup = now.Add(l.win)
+	}
 	stamps := l.perIP[ip]
 	filtered := stamps[:0]
 	for _, t := range stamps {
@@ -73,15 +82,10 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// wsRateLimiter limita tentativas de conexão do WebSocket por IP.
-var wsRateLimiter = newHandshakeLimiter(20, time.Minute)
-
-// upgrader global é substituído em InitRoutes por newUpgrader com a lista de
-// origens permitidas. O valor inicial usa o comportamento padrão do gorilla
-// (verifica se a origem bate com o Host), nunca aceita qualquer origem.
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+type websocketHandler struct {
+	hub      *controller.Hub
+	upgrader websocket.Upgrader
+	limiter  *handshakeLimiter
 }
 
 // newUpgrader cria um Upgrader com validação de origem.
@@ -105,7 +109,7 @@ func newUpgrader(allowed string) websocket.Upgrader {
 func parseOrigins(allowed string) map[string]bool {
 	allowedSet := make(map[string]bool)
 	for _, origin := range strings.Split(allowed, ",") {
-		origin = strings.TrimSpace(origin)
+		origin = strings.TrimRight(strings.TrimSpace(origin), "/")
 		if origin != "" {
 			allowedSet[origin] = true
 		}
@@ -144,32 +148,32 @@ func setSecurityHeaders(w http.ResponseWriter) {
 
 // MaxConnections permite que o limite global de conexões do WebSocket seja
 // injetado nos testes (serveWs usa hub.ConnCount diretamente).
-func serveWs(hub *controller.Hub, w http.ResponseWriter, r *http.Request) {
+func (handler *websocketHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	hub := handler.hub
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 	// Rate limit por IP antes do upgrade (mitiga DoS por handshakes).
-	if !wsRateLimiter.allow(clientIP(r)) {
+	if !handler.limiter.allow(clientIP(r)) {
 		http.Error(w, "Muitas tentativas de conexão. Tente novamente em instantes.", http.StatusTooManyRequests)
 		return
 	}
 	// Limite global de conexões simultâneas.
-	if hub.ConnCount.Load() >= controller.MaxClients {
+	if !hub.ReserveConnection() {
 		http.Error(w, "Servidor cheio. Tente novamente em instantes.", http.StatusServiceUnavailable)
 		return
 	}
 
 	setSecurityHeaders(w)
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := handler.upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		hub.ConnCount.Add(-1)
 		log.Println("Erro ao fazer upgrade para WebSocket:", err)
 		return
 	}
 
-	hub.ConnCount.Add(1)
-	client := &controller.Client{Hub: hub, Conn: conn, Send: make(chan []byte, 256)}
-
-	hub.Register <- client
-
-	go controller.ReadPump(client)
-	go controller.WritePump(client)
+	hub.ServeClient(conn)
 }
 
 func getScoresHandler(hub *controller.Hub, w http.ResponseWriter, r *http.Request) {
@@ -207,26 +211,26 @@ func getConfigHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(models.GetGameConfig())
 }
 
-// InitRoutes configura todas as rotas do seu servidor
-func InitRoutes(hub *controller.Hub, cfg Config) {
+// NewHandler configura rotas isoladas, sem alterar o mux global de net/http.
+func NewHandler(hub *controller.Hub, cfg Config) http.Handler {
+	mux := http.NewServeMux()
 	allowedSet := parseOrigins(cfg.AllowedOrigins)
-	upgrader = newUpgrader(cfg.AllowedOrigins)
+	ws := &websocketHandler{hub: hub, upgrader: newUpgrader(cfg.AllowedOrigins), limiter: newHandshakeLimiter(20, time.Minute)}
 
 	// 1. Rota WebSocket
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		serveWs(hub, w, r)
-	})
+	mux.Handle("/ws", ws)
 
 	// 2. Rota de API para o Placar
-	http.HandleFunc("/api/scores", withCORS(allowedSet, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/scores", withCORS(allowedSet, func(w http.ResponseWriter, r *http.Request) {
 		getScoresHandler(hub, w, r)
 	}))
 
 	// 3. Rota de API para a configuração compartilhada do jogo
-	http.HandleFunc("/api/config", withCORS(allowedSet, getConfigHandler))
+	mux.HandleFunc("/api/config", withCORS(allowedSet, getConfigHandler))
 
 	// 4. Rota de health check (prontidão do servidor para o front)
-	http.HandleFunc("/api/health", withCORS(allowedSet, getHealthHandler))
+	mux.HandleFunc("/api/health", withCORS(allowedSet, getHealthHandler))
 
 	log.Printf("Rotas /ws, /api/scores, /api/config e /api/health configuradas com origens permitidas: %q.", cfg.AllowedOrigins)
+	return mux
 }

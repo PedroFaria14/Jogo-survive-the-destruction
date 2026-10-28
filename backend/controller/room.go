@@ -5,6 +5,7 @@ import (
 	"game-backend/models"
 	"game-backend/service"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -23,8 +24,9 @@ type Room struct {
 
 	ScoreService service.ScoreService // Serviço de placar (injetado pelo Hub)
 
-	roundOver bool
-	roundEnd  time.Time
+	roundOver  bool
+	roundEnd   time.Time
+	scoreTasks *sync.WaitGroup
 }
 
 // newRoom cria uma sala vazia com um estado de jogo novo.
@@ -102,7 +104,7 @@ func (r *Room) broadcastState() {
 		case client.Send <- stateJSON:
 		default:
 			r.removeClient(client)
-			client.Conn.Close()
+			client.Close()
 		}
 	}
 }
@@ -112,6 +114,9 @@ func (r *Room) broadcastState() {
 // encerra (roundOver), também os que permaneceram vivos (vencedores).
 // Não fecha a conexão — o jogador vira espectador.
 func (r *Room) saveFinalScores() {
+	if r.ScoreService == nil {
+		return
+	}
 	for _, p := range r.GameState.Players {
 		if p.ScoreSaved {
 			continue
@@ -134,10 +139,16 @@ func (r *Room) saveFinalScores() {
 			name = p.ID
 		}
 
-		pp := p
+		id := p.ID
+		if r.scoreTasks != nil {
+			r.scoreTasks.Add(1)
+		}
 		go func() {
-			if err := r.ScoreService.SaveScore(pp.ID, name, finalScore, duration); err != nil {
-				log.Printf("ERRO ao salvar placar do jogador %s: %v", pp.ID, err)
+			if r.scoreTasks != nil {
+				defer r.scoreTasks.Done()
+			}
+			if err := r.ScoreService.SaveScore(id, name, finalScore, duration); err != nil {
+				log.Printf("score save failed for player %s: %v", id, err)
 			}
 		}()
 	}
@@ -243,5 +254,7 @@ func (r *Room) handleCommand(client *Client, cmd models.Command) {
 		return
 	}
 	// Demais comandos: input de movimento.
-	gs.ProcessInput(client.PlayerID, cmd)
+	if cmd.Type == "input" {
+		gs.ProcessInput(client.PlayerID, cmd)
+	}
 }

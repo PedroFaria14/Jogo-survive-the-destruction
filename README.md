@@ -4,9 +4,19 @@ Jogo multiplayer em tempo real onde a arena de ilhas flutuantes é destruída ao
 
 > 📘 Guia mais amigável e completo em [guia-do-projeto.md](./guia-do-projeto.md).
 
+### Documentação e demonstração
+
+- [Protocolo WebSocket completo](docs/websocket.md): mensagens, campos, salas, limites, desconexão e reconexão.
+- [Arquitetura e avaliação técnica](docs/arquitetura.md): responsabilidades, concorrência, decisões e limites conhecidos.
+- [Demonstração reproduzível](docs/demonstracao.md): dois jogadores reais, PostgreSQL descartável e testes no navegador.
+- [Capturas de execução](docs/evidence/README.md): home desktop/mobile, personalização e gameplay.
+
+![Home do projeto](docs/evidence/home-desktop.png)
+
 ## ✨ Funcionalidades
 
-- **Multiplayer em tempo real** via WebSocket (sala única, todos os jogadores na mesma arena).
+- **Home explicativa** em PT/EN, independente do backend: conceito, mecânicas, controles e apresentação técnica; personalização antes da conexão.
+- **Multiplayer em tempo real** via WebSocket, em salas independentes com até 5 jogadores e alocação automática.
 - **Arena procedural**: ilhas flutuantes geradas aleatoriamente a cada rodada.
 - **Destruição contínua**: a cada 3s um bloco fica vermelho (1s) e é destruído — o mapa encolhe de verdade.
 - **Quadrado perdido**: de vez em quando uma plataforma extra (halo dourado) aparece em posição aleatória e fica até ser destruída.
@@ -19,7 +29,8 @@ Jogo multiplayer em tempo real onde a arena de ilhas flutuantes é destruída ao
 - **Vidas e rodadas**: 3 vidas por rodada; placar por tempo sobrevivido; Top 10 no leaderboard.
 - **Mobile completo**: trava em paisagem (inclusive na tela de carregamento), tela cheia, controles de toque, suporte a safe-area (notch) e telas de carregamento sorteadas.
 - **Tela de carregamento em tela cheia**: imagem de fundo integral + spinner + "Procurando partida...", com aviso de rotação em retrato no celular.
-- **Health check inteligente**: a tela de carregamento só sai quando o `/api/health` confirmar que o backend (Render) ligou — com auto-retry a cada ~4s (aguenta o cold start, até 5 min) e erro com "Tentar novamente" só após esse tempo.
+- **Health check inteligente**: após personalizar, aguarda `/api/health` e `/api/config`, com tentativas a cada ~4s por até 5 min. Sair cancela os HTTPs; indisponibilidade não bloqueia a home.
+- **Conexões organizadas**: reconexão com backoff/jitter e aviso visual; encerramento coordenado de HTTP, Hub, sockets e gravações pendentes.
 
 ## 🧱 Stack
 
@@ -36,8 +47,9 @@ Jogo multiplayer em tempo real onde a arena de ilhas flutuantes é destruída ao
 backend/
   main.go              # Bootstrap, env, servidor HTTP e shutdown gracioso
   controller/
-    hub.go             # Loop principal do jogo (tick 60 FPS), clientes e rodadas
+    hub.go             # Loop serializado (16 ms), clientes, salas e shutdown
     client.go          # Pumps de leitura/escrita do WebSocket
+    room.go            # Partida isolada: rodada, comandos e broadcast
   models/
     movement.go        # GameState, física, arena procedural, destruição, quadrado perdido
     powerup.go         # Power-ups e buffs
@@ -48,7 +60,12 @@ backend/
 frontend/
   index.html
   src/
-    App.jsx            # UI, canvas, WebSocket, controles, telas (início/carregamento)
+    App.jsx            # Navegação home/jogo e carregamento dinâmico
+    Game.jsx           # Coordenação da cena, HUD, efeitos e carregamento
+    components/Home.jsx # Apresentação e personalização, sem I/O de backend
+    network/           # Sessão WebSocket e prontidão HTTP cancelável
+    hooks/             # Controles de teclado com cleanup
+    renderer/          # Sprites, cores e primitivas Canvas sem React/rede
     sfx.js             # Efeitos sonoros (Web Audio)
     index.css          # Reset e estilos globais
   assets/              # Imagens (telas de carregamento, logo, etc.)
@@ -58,7 +75,7 @@ frontend/
 
 ### Pré-requisitos
 
-- Node.js 20+ e npm
+- Node.js 20.19+ ou 22.12+ (ou versão LTS mais nova) e npm
 - Go 1.25+
 - Um PostgreSQL acessível (local, Docker ou Neon)
 
@@ -151,7 +168,7 @@ Retorna o Top 10 de sobreviventes.
 
 ```json
 [
-  { "player_id": "player_1", "name": "Jogador1234", "score_seconds": 42 }
+  { "name": "Jogador1234", "score_seconds": 42 }
 ]
 ```
 
@@ -170,10 +187,12 @@ Conexão WebSocket do jogo. Protocolo de mensagens:
 **Servidor → Cliente**
 
 ```json
-{ "type": "init", "player_id": "player_1" }
+{ "type": "init", "player_id": "player_1", "room_id": "sala_1" }
 ```
 
-Em seguida, o servidor envia continuamente (60 FPS) o `GameState` completo: `players`, `arena_tiles`, `power_ups`, `round`, `round_over`, `countdown`, `arena_width`, `arena_height`, `drop_countdown`.
+Em seguida, o servidor envia snapshots completos da sala a cada tick de 16 ms (~60 Hz), **sem `type`**: `players`, `arena_tiles`, `power_ups`, `status`, `round`, `round_over`, `countdown`, `arena_width`, `arena_height`, `drop_countdown`, `room_id`, `room_players`, `room_capacity`.
+
+`input` contém o estado completo das quatro teclas e é repetido a cada 100 ms pelo cliente. Reconexão cria uma nova participação, não recupera score/vidas/sala anteriores. Veja o [contrato completo](docs/websocket.md).
 
 ## ⚙️ Variáveis de Ambiente
 
@@ -202,7 +221,7 @@ Em seguida, o servidor envia continuamente (60 FPS) o `GameState` completo: `pla
 ## 🧠 Mecânicas e Decisões Técnicas
 
 - **Física no servidor**: todo movimento, colisão e destruição rodam no backend (tick a ~60 FPS); o frontend apenas renderiza a posição autoritativa. Isso mantém todos os jogadores sincronizados.
-- **Prontidão via `/api/health`**: o front consulta o health em loop (~4s) até o backend responder; só então carrega o `/api/config` e remove a tela de carregamento. Erro é exibido apenas após 5 minutos sem resposta (cold start do Render).
+- **Prontidão via `/api/health`**: só começa após entrar pela home/personalização. Health/config têm timeout e cancelamento ao sair; erro após aproximadamente 5 minutos de tentativas (cold start do Render).
 - **Anti-trava**: jogador parado no chão por 4s é reposicionado sem perder placar.
 - **Destruição da arena**: um tile ativo aleatório é escolhido a cada 3s; ele fica vermelho por 1s e vira buraco. Quando não sobra bloco ativo, a rodada termina.
 - **Quadrado perdido**: a cada 8–14s um tile `kind: "lost"` é criado em célula vazia aleatória e participa da destruição normal.
@@ -212,7 +231,17 @@ Em seguida, o servidor envia continuamente (60 FPS) o `GameState` completo: `pla
 ## 🧪 Testes
 
 ```bash
-cd backend && go test ./...
+cd backend
+go test ./...
+go test -race ./...  # exige CGO/compilador C; alternativa Docker no roteiro
+go vet ./...
+
+# Em frontend/
+npm test            # transporte, readiness e sprites com node:test
+npm run lint
+npm run build
+npx playwright install chromium
+npm run test:e2e    # backend de teste na porta 18080; veja o roteiro
 ```
 
-Cobrem: geração de ilhas, alcançabilidade, respawn mantendo placar, colisões/knockback, sanitização de cor e spawn do quadrado perdido.
+Cobertura funcional: física, power-ups, salas, rodadas, sanitização, integração WebSocket real, encerramento de conexões, prontidão, reconexão e timers. O E2E demonstra dois jogadores com banco real e home mobile; configure o ambiente conforme [docs/demonstracao.md](docs/demonstracao.md).

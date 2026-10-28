@@ -43,7 +43,9 @@ func (s *PostgresScoreService) initSchema() error {
 		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	_, err := s.DB.Exec(createTableSQL)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := s.DB.ExecContext(ctx, createTableSQL)
 	if err != nil {
 		return fmt.Errorf("falha ao criar ou verificar a tabela scores: %w", err)
 	}
@@ -64,7 +66,9 @@ func NewPostgresScoreService(connStr string) (ScoreService, error) {
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
-	if err = db.Ping(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err = db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("erro ao conectar com o PostgreSQL: %w", err)
 	}
@@ -88,7 +92,9 @@ func (s *PostgresScoreService) Close() error {
 func (s *PostgresScoreService) GetTopScores() ([]Score, error) {
 	query := `SELECT player_id, player_name, score_seconds FROM scores ORDER BY score_seconds DESC LIMIT 10`
 
-	rows, err := s.DB.Query(query)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rows, err := s.DB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao executar query de placares: %w", err)
 	}
@@ -127,7 +133,7 @@ func (s *PostgresScoreService) SaveScore(playerID, playerName string, scoreSecon
 		_, err = s.DB.ExecContext(ctx, query, playerID, playerName, scoreSeconds, durationMs)
 		cancel()
 		if err == nil {
-			log.Printf("Placar salvo: %s, Score: %d segundos", playerName, scoreSeconds)
+			log.Printf("Score saved: %d seconds", scoreSeconds)
 			return nil
 		}
 	}

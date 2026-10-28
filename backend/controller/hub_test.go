@@ -1,11 +1,63 @@
 package controller
 
 import (
+	"context"
+	"encoding/json"
+	"game-backend/models"
 	"game-backend/service"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestUnknownCommandDoesNotChangeInput(t *testing.T) {
+	r := newTestRoom(nil)
+	p := r.GameState.AddPlayer("test")
+	c := &Client{PlayerID: p.ID, Room: r}
+	r.handleCommand(c, models.Command{Type: "unknown", Right: true})
+	if p.RightHeld {
+		t.Fatal("unknown command changed input")
+	}
+	r.handleCommand(c, models.Command{Type: "input", Right: true})
+	if !p.RightHeld {
+		t.Fatal("valid input was ignored")
+	}
+}
+
+func TestSnapshotDoesNotExposeTransportAddress(t *testing.T) {
+	r := newTestRoom(nil)
+	r.GameState.AddPlayer("private-transport-address")
+	data, err := json.Marshal(RoomBroadcast{GameState: r.GameState, RoomID: r.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "conn_id") || strings.Contains(string(data), "private-transport-address") {
+		t.Fatal("snapshot exposed transport metadata")
+	}
+}
+
+func TestHubWaitsForPendingScores(t *testing.T) {
+	h := NewHub(nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	h.scores.Add(1)
+	go h.Run(ctx)
+	cancel()
+	short, stop := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer stop()
+	if err := h.Wait(short); err == nil {
+		t.Fatal("shutdown did not wait for score tasks")
+	}
+	h.scores.Done()
+	deadline, done := context.WithTimeout(context.Background(), time.Second)
+	defer done()
+	if err := h.Wait(deadline); err != nil {
+		t.Fatal(err)
+	}
+	if h.ReserveConnection() {
+		t.Fatal("stopped hub accepted reservation")
+	}
+}
 
 // mockScoreService registra chamadas de SaveScore em memória (sem banco).
 type mockScoreService struct {

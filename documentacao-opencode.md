@@ -2,6 +2,8 @@
 
 Documentação técnica para manutenção, onboarding de desenvolvedores e trabalho com agentes de IA (OpenCode).
 
+Referências detalhadas: [protocolo WebSocket](docs/websocket.md), [arquitetura e limites conhecidos](docs/arquitetura.md), [demonstração reproduzível](docs/demonstracao.md).
+
 ## Visão Geral Técnica
 
 Jogo multiplayer em tempo real composto por:
@@ -18,18 +20,19 @@ Princípio central: **o servidor é a fonte da verdade**. O frontend apenas rend
 Navegador (React + Canvas)
         │  WS /ws (JSON, 60 FPS)
         ▼
-backend/controller/hub.go  ──►  Loop Run() com ticker de 16ms
+backend/controller/hub.go  ──►  Loop Run(ctx) com ticker de 16ms
         │                         (único goroutine que escreve no GameState)
         ▼
-backend/models/*.go
+backend/controller/room.go ──► modelos da partida em backend/models/*.go
         │  GameState (Players, ArenaTiles, PowerUps)
         ▼
-broadcastState()  ──►  JSON serializado  ──►  todos os Clients
+Room.broadcastState()  ──►  JSON serializado  ──►  Clients da mesma sala
 ```
 
 Fluxo de dados:
 
-- `hub.Run()` consome os canais `Register`, `Unregister`, `Command` e o ticker de física.
+- `hub.Run(ctx)` consome os canais `Register`, `Unregister`, `Command` e o ticker de física; coordena cancelamento, fechamento de sockets e espera das gravações iniciadas.
+- Cada sala tem estado independente, até 5 jogadores e broadcast próprio. A capacidade global de conexões/handshakes é reservada atomicamente antes do upgrade.
 - A cada tick: física → power-ups → destruição → quadrado perdido → placar → broadcast.
 - Entradas do jogador chegam pelo canal `Command` (`PlayerCommand`) e são aplicadas por `GameState.ProcessInput`.
 
@@ -41,6 +44,7 @@ backend/
   controller/
     hub.go             # Loop principal (Run/tick), clientes, rodadas, broadcast
     client.go          # ReadPump/WritePump do WebSocket (por conexão)
+    room.go            # Partida isolada: comandos, rodada, scores, broadcast
     hub_test.go        # Testes de fim de rodada
   models/
     movement.go        # GameState, Player, ArenaTile, física, arena procedural,
@@ -49,13 +53,19 @@ backend/
     powerup.go         # Power-ups/buffs e spawn de drops (UpdatePowerUps)
     movement_test.go   # Testes de geração, física, cor e quadrado perdido
   routes/
-    routes.go          # /ws, /api/scores, /api/config + CORS/origin whitelist
+    routes.go          # NewHandler: mux por instância, /ws e /api/* + CORS
   service/
     poster.go          # Interface ScoreService + PostgresScoreService
 frontend/
-  index.html           # viewport trava zoom; título
+  index.html           # viewport, zoom permitido, título
   src/
-    App.jsx            # Tudo de UI: canvas, WebSocket, controles, telas, HUD
+    App.jsx            # Home/jogo com import dinâmico; idioma compartilhado
+    Game.jsx           # Coordenação da cena, efeitos, HUD e carregamento
+    components/Home.jsx # Apresentação e personalização, sem backend
+    network/game_session.js # Transporte, watchdog, heartbeat, retries e cleanup
+    network/backend_ready.js # Health/config com cancelamento
+    hooks/use_game_controls.js # Teclado, foco, visibility e cleanup
+    renderer/sprites.js # Primitivas e paleta Canvas sem React/rede
     sfx.js             # Efeitos sonoros via Web Audio
     index.css          # Reset, overflow oculto, canvas
   assets/              # carregamento*.jpeg (sorteadas), logo.jpeg
@@ -66,19 +76,19 @@ frontend/
 ### 1. Entrada e início de partida
 
 ```text
-Abre a página
-↓
-checkBackend(): fetch GET /api/config (timeout 8s via AbortController)
-↓ 'checking' → imagem de carregamento sorteada (import.meta.glob)
-↓ 'error'    → "Servidor indisponível" + TENTAR NOVAMENTE
-↓ 'ready'
-Tela inicial: nickname + cor da bolinha (input type=color, localStorage 'ballColor')
-↓ INICIAR JOGO
-Fullscreen + window.screen.orientation.lock('landscape') (Android)
+Abre a página → home com explicação, mecânicas e controles (sem backend)
+↓ Jogar agora
+Personalização: nickname + cor (localStorage 'ballColor')
+↓ Entrar na arena → import dinâmico de Game.jsx
+waitForBackend(): GET /api/health → GET /api/config
+↓ 'checking' → imagem de carregamento sorteada
+↓ 'error' → tentar novamente ou voltar à home
+↓ 'ready' → iniciar partida
+Fullscreen/orientation lock mobile best-effort, a partir da ação de entrar
 ↓
 WebSocket /ws
 ↓ open → envia { type:'join', name, color }
-↓ init  → recebe { type:'init', player_id }
+↓ init  → recebe { type:'init', player_id, room_id }
 ↓
 Servidor passa a enviar GameState completo a ~60 FPS
 ```
@@ -88,7 +98,7 @@ Servidor passa a enviar GameState completo a ~60 FPS
 ```text
 hub.tick(now) [16ms]
 ↓
-saveDeadScores() → placar de mortos salvos uma única vez (goroutine)
+Room.saveFinalScores() → encaminha placares finais (goroutine acompanhada no shutdown)
 ↓
 UpdatePowerUps(now) → spawn/expiração de drops
 ↓
@@ -131,7 +141,7 @@ setUi() throttled a cada 250ms → apenas HUD/overlays re-renderizam
 ### 5. Morte e fim de rodada
 
 - `is_dead=true` → jogador vira espectador (fantasma).
-- `saveDeadScores` persiste o placar uma vez por jogador morto.
+- `Room.saveFinalScores` encaminha o placar uma vez por eliminação ou fim de rodada, incluindo o vencedor. A flag é local à memória; não garante idempotência no banco sob retry.
 - 3 vidas (`MaxLives`) → ao zerar, prompt "VOCÊ CAIU!" com ranking.
 - `roundShouldEnd`: sem tiles ativos, todos mortos, ou (multiplayer) restar 1 vivo.
 
@@ -140,7 +150,7 @@ setUi() throttled a cada 250ms → apenas HUD/overlays re-renderizam
 ### Join com nome e cor
 
 ```text
-App.jsx (join) ──► WS /ws ──► hub.Command ──► hub.go:236 (join)
+network/game_session.js (join) ──► WS /ws ──► hub.Command ──► Room.handleCommand
       └─► models.SanitizeColor(color) ──► p.Name / p.Color
       ──► próximo broadcastState inclui players[].color
 ```
@@ -148,8 +158,10 @@ App.jsx (join) ──► WS /ws ──► hub.Command ──► hub.go:236 (join
 ### Input do jogador
 
 ```text
-App.jsx sendFrame() (por frame) ──► WS ──► ReadPump ──► PlayerCommand{Cmd, PlayerID}
-      ──► hub.Command ──► hub.go:261 ProcessInput ──► ApplyPhysics no próximo tick
+use_game_controls → Game.sendFrame() nas mudanças de tecla ──► sessão WS
+      ──► ReadPump ──► PlayerCommand{Cmd, Client} ──► hub.Command
+      ──► Room.handleCommand ──► ProcessInput ──► ApplyPhysics no próximo tick
+Sessão repete input completo a cada 100 ms para manter coerência após respawn.
 ```
 
 ### Placar
@@ -158,14 +170,14 @@ App.jsx sendFrame() (por frame) ──► WS ──► ReadPump ──► Player
 Frontend fetch GET /api/scores (a cada 10s) ──► routes.getScoresHandler
       ──► ScoreService.GetTopScores() ──► SELECT ... LIMIT 10
 
-Morte do jogador ──► hub.saveDeadScores() ──► ScoreService.SaveScore (goroutine)
+Morte/fim de rodada ──► Room.saveFinalScores() ──► ScoreService.SaveScore (goroutine)
       ──► INSERT INTO scores
 ```
 
 ### Config
 
 ```text
-checkBackend() e fallback ──► GET /api/config ──► routes.getConfigHandler
+waitForBackend() após health ──► GET /api/config ──► routes.getConfigHandler
       ──► models.GetGameConfig() (constantes compartilhadas)
 ```
 
@@ -182,7 +194,7 @@ checkBackend() e fallback ──► GET /api/config ──► routes.getConfigHa
 
 - **Objetivo**: Top 10 de sobreviventes.
 - **Entrada**: nenhuma.
-- **Saída**: `[{ player_id, name, score_seconds }]`.
+- **Saída**: `[{ name, score_seconds }]` (sem `player_id`).
 - **Regras**: GET apenas; retorna `[]` quando vazio (nunca `null`).
 
 ### `WS /ws`
@@ -194,7 +206,7 @@ checkBackend() e fallback ──► GET /api/config ──► routes.getConfigHa
   - `{ "type": "input", "left": bool, "right": bool, "jump": bool, "dash": bool }`
   - `{ "type": "restart" }`
 - **Saída (servidor)**:
-  - `{ "type": "init", "player_id": "..." }` logo após conectar.
+  - `{ "type": "init", "player_id": "...", "room_id": "..." }` logo após conectar.
   - `GameState` serializado a ~60 FPS (sem campo `type`).
 
 ### `WS /ws` — estrutura do `GameState` (pacote de tick)
@@ -204,6 +216,9 @@ Enviado a ~60 FPS para cada cliente conectado. Não possui campo `type`
 
 ```text
 {
+  "room_id": "sala_1",
+  "room_players": 1,
+  "room_capacity": 5,
   "round": 1,
   "round_over": false,
   "countdown": 3,
@@ -290,7 +305,7 @@ CREATE TABLE IF NOT EXISTS scores (
 | `VITE_API_URL` | **Sim** | URL base da API (ex.: `https://jogo-survive-the-destruction.onrender.com`). |
 | `VITE_WS_URL` | **Sim** | URL do WebSocket (ex.: `wss://jogo-survive-the-destruction.onrender.com/ws`). |
 
-- Fallbacks em `frontend/src/App.jsx` apontam para as URLs de produção do
+- Fallbacks em `frontend/src/Game.jsx` apontam para as URLs de produção do
   Render. Para dev local, definir as variáveis Vite apontando para
   `http://localhost:8080`.
 
@@ -317,13 +332,14 @@ go build -o jogo .     # build do binário
 ```bash
 cd frontend
 npm install
+npm test               # unitários da sessão, readiness e sprites
+npm run test:e2e       # Chromium + backend/banco locais conforme docs/demonstracao.md
 npm run dev            # servidor de desenvolvimento Vite
 npm run lint           # ESLint (usar antes de finalizar mudanças)
 npm run build          # build de produção (Vite)
 ```
 
-- O frontend em dev chama `http://localhost:8080` por padrão; configurar as
-  variáveis Vite se a API estiver em outra porta.
+- Sem variáveis Vite, o frontend chama produção. Configure URLs locais explicitamente. A suíte E2E força `127.0.0.1:18080` e abre Vite em `localhost:4173` para não usar os servidores de desenvolvimento existentes.
 
 ## Decisões Técnicas Importantes
 
@@ -344,20 +360,14 @@ npm run build          # build de produção (Vite)
 6. **Cor da bolinha**: o cliente escolhe `#rrggbb` (armazenado em
    `localStorage`) e o servidor sanitiza no join (`SanitizeColor`) com
    fallback para o dourado `#f2b544`.
-7. **Loading screen com gate**: o frontend não desenha o jogo até o
-   `GET /api/config` responder (timeout de 8 s), garantindo que os
-   parâmetros de física vêm do servidor. As imagens `carregamento*.jpeg`
-   são sorteadas por visita via `import.meta.glob`.
+7. **Loading screen com gate**: a home não espera o backend. Após personalização, health/config têm prazo por tentativa de 6 s e retry a cada 4 s por aproximadamente 5 min. Sair cancela HTTPs e retries. Imagens `carregamento*.jpeg` são sorteadas via `import.meta.glob`.
 8. **i18n simples**: dicionário PT/EN em `frontend/src/i18n.js`, detecção
    automática por `navigator.language`, persistência em `localStorage.lang`
    e botão de troca em tela inicial, loading, HUD mobile e sidebar.
 9. **Botão SAIR**: `handleExit` fecha o WebSocket (via cleanup do efeito de
    `gameStarted`), zera todos os refs de estado e volta ao menu sem
-   recarregar a página (ao contrário de "OUTRA PARTIDA" que recarrega).
-10. **Reconexão**: o WebSocket reconecta com backoff (máx. 8 s) se cair
-    durante a partida e **reenvia o estado atual de input** (teclas seguradas
-    continuam funcionando). Tela cheia/orientação são travadas apenas no
-    mobile.
+   recarregar a página. "OUTRA PARTIDA" também retorna à home sem reload.
+10. **Reconexão**: transporte isolado em `network/game_session.js`, backoff limitado a 8 s + jitter de até 300 ms, watchdog de 15 s e reenvio de perfil/input. Reconexão cria nova participação e não recupera score/sala anteriores; a UI informa essa limitação.
 11. **Segurança do backend**: limite global de conexões (`MaxClients = 300`)
     + rate limit de handshake por IP; `recover()` nas goroutines (Hub e
     pumps) evita que um panic derrube o servidor; headers de segurança nas
@@ -377,7 +387,7 @@ npm run build          # build de produção (Vite)
   checar com `if (isTouch && document.documentElement.requestFullscreen)`.
   iOS Safari ignora fullscreen e o lock de orientação.
 - **Textos hardcoded**: textos de UI ficam em `frontend/src/i18n.js` —
-  **nunca** escrever textos de UI soltos em `App.jsx` (falha na tradução).
+  preservar as traduções ao alterar Home/Game.
 - **`import.meta.glob`**: as telas de carregamento são carregadas com
   `eager: true`; não referenciar imagens por caminho dinâmico.
 - **Pacotes de controle vs estado**: mensagens com campo `type` são
@@ -401,10 +411,8 @@ npm run build          # build de produção (Vite)
   para o dicionário i18n).
 - **Nomes em inglês**: identificadores, tipos e funções em inglês
   (PascalCase exportado, camelCase local).
-- **CSS em JS**: usar MUI `sx` e o objeto `PALETTE` (paleta central em
-  `frontend/src/App.jsx`); não criar arquivos `.css` soltos.
-- **Paleta de cores**: `PALETTE` no topo de `App.jsx` centraliza todas as
-  cores do jogo (céu, ilhas, queda, texto). Adicionar novas cores lá.
+- **Estilos**: gameplay usa MUI `sx`; home usa CSS escopado sob `.home-scroll`, sem impor o layout fixo do jogo à apresentação.
+- **Paleta de cores do jogo**: `PALETTE` em `frontend/src/renderer/sprites.js`; sprites não importam React ou transporte.
 - **Sound effects**: via `frontend/src/sfx.js` (`sfx.unlock()`,
   `sfx.click()`, `sfx.tileBreak()`, `sfx.roundStart()`); chamar `sfx.unlock()`
   no primeiro evento de usuário.

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"game-backend/models"
 	"game-backend/service"
 	"log"
@@ -43,9 +44,9 @@ type Client struct {
 	// fantasma que nunca seria removido da sala.
 	closed atomic.Bool
 
-	// closeOnce garante que o Unregister + fechamento da conexão sejam
-	// enviados exatamente uma vez, vindos de qualquer um dos pumps.
-	closeOnce sync.Once
+	// closeOnce protege o transporte/contador; unregisterOnce protege o evento.
+	closeOnce      sync.Once
+	unregisterOnce sync.Once
 }
 
 // Hub gerencia as conexões de clientes e as salas de jogo (múltiplas partidas).
@@ -54,14 +55,17 @@ type Hub struct {
 	roomSeq      int
 	Register     chan *Client
 	Unregister   chan *Client
-	Broadcast    chan []byte
-	Command      chan PlayerCommand // Canal para comandos de entrada dos jogadores
+	Command      chan PlayerCommand   // Canal para comandos de entrada dos jogadores
 	ScoreService service.ScoreService // Serviço para lidar com o placar
 
-	// ConnCount é o número de conexões ativas (incrementado no serveWs após o
-	// upgrade e decrementado exatamente uma vez no encerramento de cada client).
+	// ConnCount contabiliza conexões ativas e vagas reservadas durante o handshake.
 	// Protege o servidor contra exaustão de conexões.
 	ConnCount atomic.Int64
+	stopping  chan struct{}
+	finished  chan struct{}
+	lifecycle sync.Mutex
+	pumps     sync.WaitGroup
+	scores    sync.WaitGroup
 }
 
 // NewHub recebe o serviço de placar para injeção de dependência
@@ -70,9 +74,10 @@ func NewHub(ss service.ScoreService) *Hub {
 		Rooms:        make(map[string]*Room),
 		Register:     make(chan *Client),
 		Unregister:   make(chan *Client),
-		Broadcast:    make(chan []byte),
 		Command:      make(chan PlayerCommand),
 		ScoreService: ss,
+		stopping:     make(chan struct{}),
+		finished:     make(chan struct{}),
 	}
 }
 
@@ -88,11 +93,12 @@ func (h *Hub) assignRoom(client *Client) *Room {
 	h.roomSeq++
 	id := "sala_" + strconv.Itoa(h.roomSeq)
 	r := newRoom(id, h.ScoreService)
+	r.scoreTasks = &h.scores
 	h.Rooms[id] = r
 	return r
 }
 
-// removeClient remove o cliente da sua sala (fecha o canal Send nela) e, se a remove o cliente da sua sala (fecha o canal Send nela) e, se a
+// removeClient remove o cliente da sua sala e, se a
 // sala ficar vazia, descarta-a. Deve ser chamado a partir da goroutine Run().
 func (h *Hub) removeClient(client *Client) {
 	room := client.Room
@@ -126,11 +132,28 @@ func sanitizeName(name string) string {
 // das salas. Todos os eventos (registro, comandos, desconexão e ticks de
 // física) passam por este loop, evitando condições de corrida nos mapas
 // compartilhados. Panics internos são capturados para não derrubar o servidor.
-func (h *Hub) Run() {
+func (h *Hub) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Millisecond * 16) // ~60 FPS
 	defer ticker.Stop()
+	defer close(h.finished)
+	defer func() {
+		h.lifecycle.Lock()
+		close(h.stopping)
+		h.lifecycle.Unlock()
+		for _, room := range h.Rooms {
+			for client := range room.Clients {
+				client.Close()
+				h.removeClient(client)
+			}
+		}
+		h.pumps.Wait()
+		h.scores.Wait()
+	}()
 
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -138,6 +161,8 @@ func (h *Hub) Run() {
 				}
 			}()
 			select {
+			case <-ctx.Done():
+				return
 			case now := <-ticker.C:
 				h.tick(now)
 
@@ -157,6 +182,9 @@ func (h *Hub) Run() {
 				log.Printf("Cliente desconectado. Conexões ativas: %d", h.ConnCount.Load())
 
 			case playerCmd := <-h.Command:
+				if playerCmd.Client.closed.Load() {
+					return
+				}
 				room := playerCmd.Client.Room
 				if room != nil {
 					room.handleCommand(playerCmd.Client, playerCmd.Cmd)
@@ -164,6 +192,63 @@ func (h *Hub) Run() {
 			}
 		}()
 	}
+}
+
+// Wait aguarda o encerramento de conexões e gravações pendentes.
+func (h *Hub) Wait(ctx context.Context) error {
+	select {
+	case <-h.finished:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// ReserveConnection reserva atomicamente uma vaga, inclusive durante o handshake.
+func (h *Hub) ReserveConnection() bool {
+	h.lifecycle.Lock()
+	defer h.lifecycle.Unlock()
+	select {
+	case <-h.stopping:
+		return false
+	default:
+	}
+	for {
+		n := h.ConnCount.Load()
+		if n >= MaxClients {
+			return false
+		}
+		if h.ConnCount.CompareAndSwap(n, n+1) {
+			return true
+		}
+	}
+}
+
+// ServeClient registra uma conexão cuja vaga já foi reservada e inicia seus pumps.
+func (h *Hub) ServeClient(conn *websocket.Conn) {
+	c := &Client{Hub: h, Conn: conn, Send: make(chan []byte, 8)}
+	h.lifecycle.Lock()
+	select {
+	case <-h.stopping:
+		h.lifecycle.Unlock()
+		h.ConnCount.Add(-1)
+		conn.Close()
+		return
+	default:
+		h.pumps.Add(2)
+	}
+	h.lifecycle.Unlock()
+	select {
+	case h.Register <- c:
+	case <-h.stopping:
+		h.ConnCount.Add(-1)
+		conn.Close()
+		h.pumps.Done()
+		h.pumps.Done()
+		return
+	}
+	go func() { defer h.pumps.Done(); ReadPump(c) }()
+	go func() { defer h.pumps.Done(); WritePump(c) }()
 }
 
 // tick executa um passo de jogo de todas as salas e descarta salas vazias.
