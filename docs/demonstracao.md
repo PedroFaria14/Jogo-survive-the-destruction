@@ -64,6 +64,8 @@ Use banco descartável **vazio** em cada demonstração de persistência: o endp
 
 ### O que a suíte verifica
 
+Além dos quatro cenários de jogo abaixo, `tests/e2e/social-preview.spec.js` verifica os metadados de compartilhamento e o JPEG com JavaScript desabilitado. Esse teste isolado não precisa de backend/banco; veja [o guia da miniatura](deploy-vercel.md#miniatura-no-linkedin-e-outras-redes).
+
 - Home em inglês mesmo com navegador PT-BR e a chave antiga `lang=pt`; troca manual e persistência de português; personalização sem nenhuma chamada `/api/*`.
 - Imagem hero, favicon e logo do jogo carregados de fato, sem depender de caminhos de assets inexistentes.
 - Home mobile em retrato, sem overflow horizontal, com CTA acessível.

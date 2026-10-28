@@ -61,3 +61,37 @@ Um redeploy do commit antigo repete o erro. Commit, push e publicação não sã
 - Hero e telas de carregamento também usam assets processados pelo Vite. O favicon permanece em `/logo.png`, que existe em `public/`.
 
 Para repetir os testes no **build de produção** com backend local, use o roteiro em [demonstracao.md](demonstracao.md). O modo `E2E_PREVIEW=1` serve `dist/` em vez do dev server; as URLs de backend locais devem estar presentes durante o build de teste.
+
+## Miniatura no LinkedIn e outras redes
+
+O HTML estático de `frontend/index.html` contém Open Graph e Twitter Cards, com a URL oficial `https://survive.phfaria.com/`. Essas tags estão presentes antes de executar React, pois os robôs de compartilhamento não devem depender de JavaScript.
+
+A imagem é `frontend/public/social-preview.jpg`, JPEG de **1200 × 630 px**, copiado para `dist/social-preview.jpg` pelo Vite. O `og:image` utiliza a URL absoluta `https://survive.phfaria.com/social-preview.jpg`, com MIME, dimensões e texto alternativo. O favicon não substitui essa imagem de compartilhamento.
+
+Para gerar novamente a miniatura a partir da arte existente, em `frontend/`:
+
+```powershell
+corepack pnpm exec playwright install chromium
+corepack pnpm generate:social-preview
+```
+
+Versione o JPEG gerado. A geração é manual, somente em desenvolvimento; o deploy não baixa Chromium nem executa o gerador.
+
+Para validar somente a prévia sobre o build, sem backend ou PostgreSQL:
+
+```powershell
+corepack pnpm build
+$env:E2E_PREVIEW = '1'
+corepack pnpm test:e2e tests/e2e/social-preview.spec.js
+```
+
+O teste desabilita JavaScript, envia o User-Agent `LinkedInBot/1.0` e verifica as tags no HTML, a resposta HTTP e o tipo/conteúdo/dimensões reais do JPEG servido pelo preview. Não acessa a imagem remota antes de ela ser publicada.
+
+### Após publicar o novo commit
+
+1. Aguarde o deploy ficar **Ready** e promover a versão nova para o domínio oficial.
+2. Abra `https://survive.phfaria.com/social-preview.jpg` sem login. Deve responder `200`, com a miniatura, não HTML ou uma página de autenticação.
+3. Acesse [LinkedIn Post Inspector](https://www.linkedin.com/post-inspector/) e inspecione `https://survive.phfaria.com/` para solicitar uma nova leitura.
+4. Confira a prévia no formulário de link em destaque. Se ele mantiver o resultado antigo, reabra o formulário depois da atualização de cache.
+
+O LinkedIn mantém cache próprio: publicar os metadados não garante substituição instantânea de uma prévia já armazenada. O teste local comprova o artefato gerado; o resultado final no LinkedIn só pode ser conferido após deploy e reprocessamento.

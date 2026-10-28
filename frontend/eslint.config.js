@@ -6,9 +6,9 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
   globalIgnores(['dist']),
-  { files: ['tests/**/*.js', 'playwright.config.js'], languageOptions: { globals: globals.node } },
+  { files: ['tests/**/*.js', 'scripts/**/*.mjs', 'playwright.config.js'], languageOptions: { globals: globals.node } },
   {
-    files: ['**/*.{js,jsx}'],
+    files: ['**/*.{js,jsx,mjs}'],
     extends: [
       js.configs.recommended,
       reactHooks.configs['recommended-latest'],
