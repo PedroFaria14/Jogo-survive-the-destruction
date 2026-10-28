@@ -17,7 +17,10 @@ export default defineConfig({
     video: "retain-on-failure",
   },
   webServer: {
-    command: "npm run dev -- --host localhost --port 4173 --strictPort",
+    command:
+      process.env.E2E_PREVIEW === "1"
+        ? "pnpm run preview --host localhost --port 4173 --strictPort"
+        : "pnpm run dev --host localhost --port 4173 --strictPort",
     url: "http://localhost:4173",
     reuseExistingServer: false,
     env: {

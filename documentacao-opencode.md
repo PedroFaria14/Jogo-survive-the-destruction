@@ -361,9 +361,7 @@ npm run build          # build de produção (Vite)
    `localStorage`) e o servidor sanitiza no join (`SanitizeColor`) com
    fallback para o dourado `#f2b544`.
 7. **Loading screen com gate**: a home não espera o backend. Após personalização, health/config têm prazo por tentativa de 6 s e retry a cada 4 s por aproximadamente 5 min. Sair cancela HTTPs e retries. Imagens `carregamento*.jpeg` são sorteadas via `import.meta.glob`.
-8. **i18n simples**: dicionário PT/EN em `frontend/src/i18n.js`, detecção
-   automática por `navigator.language`, persistência em `localStorage.lang`
-   e botão de troca em tela inicial, loading, HUD mobile e sidebar.
+8. **i18n simples**: dicionário PT/EN em `frontend/src/i18n.js`, inglês como padrão independentemente do navegador. Só uma escolha manual persiste `localStorage.preferredLanguage`; a chave legada `lang` não força mais o idioma. O botão de troca é compartilhado entre home e jogo.
 9. **Botão SAIR**: `handleExit` fecha o WebSocket (via cleanup do efeito de
    `gameStarted`), zera todos os refs de estado e volta ao menu sem
    recarregar a página. "OUTRA PARTIDA" também retorna à home sem reload.

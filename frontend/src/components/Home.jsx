@@ -54,6 +54,7 @@ export function Home({ lang, onLanguage, onPlay }) {
         </a>
         <nav aria-label={t("home.navigation")}>
           {!setup && <a href="#how-to-play">{t("home.how")}</a>}
+          {!setup && <a href="#project">{t("home.projectLink")}</a>}
           <button
             className="language-button"
             onClick={onLanguage}

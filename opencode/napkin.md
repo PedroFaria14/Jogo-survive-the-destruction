@@ -11,6 +11,8 @@
    Faça isto em vez disso: use `127.0.0.1:18080` no backend E2E e `localhost:4173` no Vite; configure `ALLOWED_ORIGINS` e URLs explícitas. Não reutilize portas 8080/5173 sem verificar: IPv4 e IPv6 podem atender processos diferentes e validar o servidor errado.
 2. **[2026-10-28] Não depender do banco/Render de produção para testar**
    Faça isto em vez disso: siga `docs/demonstracao.md`, usando PostgreSQL Docker descartável e credenciais locais; preserve `.env` e encerre apenas os recursos criados pela própria execução.
+3. **[2026-10-28] O deploy usa pnpm, não o lockfile npm**
+   Faça isto em vez disso: use pnpm 10.34.9 fixado no manifesto e valide `install --frozen-lockfile` ao alterar dependências. Inclua o lockfile pnpm no mesmo commit; atualizar apenas `package-lock.json` não corrige o build da Vercel.
 
 ## Confiabilidade de Shell e Comandos
 

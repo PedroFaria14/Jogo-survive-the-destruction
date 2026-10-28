@@ -7,8 +7,8 @@ Interface web do jogo **Survive the Destruction** (React 19 + Vite 7 + MUI 7 + C
 ## Como rodar
 
 ```bash
-npm install
-npm run dev
+corepack pnpm install --frozen-lockfile
+corepack pnpm dev
 ```
 
 Abra `http://localhost:5173`. Por padrão as URLs do backend apontam para produção (Render);
@@ -21,14 +21,16 @@ VITE_API_URL=http://localhost:8080
 
 ## Scripts
 
+Gerenciador de referência: **pnpm 10.34.9**, fixado no manifesto. Com Corepack indisponível, use `npx --yes pnpm@10.34.9 <comando>`. O deploy usa o lockfile pnpm; consulte o [guia da Vercel](../docs/deploy-vercel.md).
+
 | Script | Descrição |
 | ------ | ------ |
-| `npm run dev` | Servidor de desenvolvimento (HMR) |
-| `npm run build` | Build de produção em `dist/` |
-| `npm run lint` | ESLint |
-| `npm run preview` | Serve o build de produção localmente |
-| `npm test` | 11 testes unitários de rede/readiness/sprites, via node:test |
-| `npm run test:e2e` | Chromium real desktop/mobile com backend e banco locais |
+| `pnpm dev` | Servidor de desenvolvimento (HMR) |
+| `pnpm build` | Build de produção em `dist/` |
+| `pnpm lint` | ESLint |
+| `pnpm preview` | Serve o build de produção localmente |
+| `pnpm test` | Testes unitários de rede/readiness/sprites/idioma, via node:test |
+| `pnpm test:e2e` | Chromium real desktop/mobile com backend e banco locais |
 
 Para E2E, siga [`../docs/demonstracao.md`](../docs/demonstracao.md). A suíte usa Vite em `localhost:4173` e backend em `127.0.0.1:18080`, sem acessar produção.
 
@@ -50,3 +52,5 @@ assets/       # Imagens de carregamento, logo, etc.
 ```
 
 A home abre imediatamente. Após **Jogar agora → personalização → Entrar na arena**, a tela de carregamento consulta `GET /api/health` e `/api/config` até obter configuração válida. Sair cancela as requisições. A sessão possui reconexão com backoff/jitter e aviso de que reconectar cria um novo jogador. Veja o [protocolo](../docs/websocket.md).
+
+O idioma inicial é **inglês**, independentemente do idioma do navegador. A seleção manual de português/inglês é persistida em `preferredLanguage`; o estado antigo salvo automaticamente em `lang` não força mais português.

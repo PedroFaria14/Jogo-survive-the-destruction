@@ -1,5 +1,19 @@
 import { test, expect } from "@playwright/test";
 
+async function expectImagesLoaded(page) {
+  await expect
+    .poll(() =>
+      page
+        .locator("img")
+        .evaluateAll(
+          (images) =>
+            images.length > 0 &&
+            images.every((image) => image.complete && image.naturalWidth > 0),
+        ),
+    )
+    .toBe(true);
+}
+
 async function observe(page) {
   const record = {
     state: null,
@@ -43,9 +57,15 @@ async function observe(page) {
 }
 
 async function enter(page, name) {
-  const health = await page.request.get("http://127.0.0.1:18080/api/health", { timeout: 5000 });
-  await expect(health, "Inicie o backend de teste conforme docs/demonstracao.md").toBeOK();
+  const health = await page.request.get("http://127.0.0.1:18080/api/health", {
+    timeout: 5000,
+  });
+  await expect(
+    health,
+    "Inicie o backend de teste conforme docs/demonstracao.md",
+  ).toBeOK();
   await page.goto("/");
+  await page.getByRole("button", { name: "Mudar para português" }).click();
   await page.getByRole("button", { name: "Jogar agora" }).first().click();
   await page.getByLabel("Escolha seu nome").fill(name);
   await page.getByRole("button", { name: "Entrar na arena" }).click();
@@ -60,20 +80,33 @@ test("home and personalization work without backend, in Portuguese and English",
     requests++;
     return route.abort();
   });
+  await page.addInitScript(() => localStorage.setItem("lang", "pt"));
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
-    "O chão desaparece",
+    "The floor disappears",
   );
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(page.locator("canvas")).toHaveCount(0);
+  await expectImagesLoaded(page);
+  await expect(await page.request.get("/logo.png")).toBeOK();
   await page.screenshot({
     path: "../docs/evidence/home-desktop.png",
     fullPage: true,
   });
   await page
     .getByRole("heading", {
-      name: "Um laboratório de multiplayer em tempo real.",
+      name: "A real-time multiplayer playground.",
     })
     .scrollIntoViewIfNeeded();
   await page.screenshot({ path: "../docs/evidence/home-projeto.png" });
+  await page.getByRole("button", { name: "Mudar para português" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(
+    "O chão desaparece",
+  );
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(
+    "O chão desaparece",
+  );
   await page.getByRole("button", { name: "Switch to English" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
     "The floor disappears",
@@ -122,6 +155,7 @@ test("mobile landscape runs a real match and accepts touch controls", async ({
       touchPoints: [],
     });
     await page.screenshot({ path: "../docs/evidence/partida-mobile.png" });
+    await expectImagesLoaded(page);
     await page.getByRole("button", { name: "SAIR", exact: true }).tap();
     await expect(page.getByRole("heading", { level: 1 })).toContainText(
       "O chão desaparece",
@@ -153,9 +187,10 @@ test("mobile home scrolls in portrait and personalization fits the viewport", as
       path: "../docs/evidence/home-mobile.png",
       fullPage: true,
     });
-    await page.getByRole("button", { name: "Jogar agora" }).first().click();
+    await expectImagesLoaded(page);
+    await page.getByRole("button", { name: "Play now" }).first().click();
     await expect(
-      page.getByRole("button", { name: "Entrar na arena" }),
+      page.getByRole("button", { name: "Enter the arena" }),
     ).toBeInViewport();
     await page.screenshot({
       path: "../docs/evidence/personalizacao-mobile.png",
@@ -207,6 +242,7 @@ test("two real players share physics, round lifecycle, scores, reconnection and 
     await pa.keyboard.press("Space");
     await pa.keyboard.press("Shift");
     await pa.screenshot({ path: "../docs/evidence/partida-desktop.png" });
+    await expectImagesLoaded(pa);
     await expect.poll(() => rb.falling, { timeout: 12000 }).toBe(true);
     await pa.keyboard.down("d");
     await expect

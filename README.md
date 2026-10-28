@@ -9,6 +9,7 @@ Jogo multiplayer em tempo real onde a arena de ilhas flutuantes é destruída ao
 - [Protocolo WebSocket completo](docs/websocket.md): mensagens, campos, salas, limites, desconexão e reconexão.
 - [Arquitetura e avaliação técnica](docs/arquitetura.md): responsabilidades, concorrência, decisões e limites conhecidos.
 - [Demonstração reproduzível](docs/demonstracao.md): dois jogadores reais, PostgreSQL descartável e testes no navegador.
+- [Deploy na Vercel](docs/deploy-vercel.md): Root Directory, pnpm fixado e instalação com lockfile congelado.
 - [Capturas de execução](docs/evidence/README.md): home desktop/mobile, personalização e gameplay.
 
 ![Home do projeto](docs/evidence/home-desktop.png)
@@ -101,11 +102,11 @@ O servidor sobe em `http://localhost:8080`.
 
 ```bash
 cd frontend
-npm install
+corepack pnpm install --frozen-lockfile
 # opcional: configure as URLs do backend local
 cp .env.example .env
 # .env => VITE_WS_URL=ws://localhost:8080/ws e VITE_API_URL=http://localhost:8080
-npm run dev
+corepack pnpm dev
 ```
 
 Abra `http://localhost:5173`.
@@ -216,7 +217,7 @@ Em seguida, o servidor envia snapshots completos da sala a cada tick de 16 ms (~
 ## ☁️ Deploy
 
 - **Backend → Render**: serviço web Go, `rootDir: backend`, build `go build -o server .`, start `./server`. Variáveis: `DATABASE_URL`, `ALLOWED_ORIGINS` (origem do Vercel), `HTTP_ADDR`.
-- **Frontend → Vercel**: aplicação estática Vite (pasta `frontend/`). As URLs do backend são injetadas via `VITE_WS_URL` e `VITE_API_URL`.
+- **Frontend → Vercel**: Root Directory `frontend`, pnpm `10.34.9` e comandos de instalação/build definidos em `frontend/vercel.json`. As URLs do backend são injetadas via `VITE_WS_URL` e `VITE_API_URL`. Veja o [guia de deploy](docs/deploy-vercel.md).
 
 ## 🧠 Mecânicas e Decisões Técnicas
 

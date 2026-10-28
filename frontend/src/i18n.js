@@ -1,4 +1,4 @@
-// i18n simples: dicionário PT/EN com detecção automática do navegador e
+// i18n simples: dicionário PT/EN com inglês como padrão e
 // substituição de placeholders ({chave}) via translate().
 
 export const STRINGS = {
@@ -188,16 +188,25 @@ export const STRINGS = {
   },
 };
 
-// Detecta o idioma: preferência salva > idioma do navegador (pt) > inglês.
+// Só uma escolha explícita substitui o inglês. A antiga chave "lang" também
+// guardava detecção automática em português; ignorá-la evita manter esse padrão.
 export function detectLanguage() {
   try {
-    const saved = localStorage.getItem('lang');
+    const saved = localStorage.getItem('preferredLanguage');
     if (saved === 'pt' || saved === 'en') return saved;
   } catch {
-    // localStorage indisponível: segue para a detecção.
+    // localStorage indisponível: usa o idioma padrão.
   }
-  const nav = (navigator.languages?.[0] || navigator.language || '').toLowerCase();
-  return nav.startsWith('pt') ? 'pt' : 'en';
+  return 'en';
+}
+
+export function saveLanguagePreference(lang) {
+  if (lang !== 'en' && lang !== 'pt') return;
+  try {
+    localStorage.setItem('preferredLanguage', lang);
+  } catch {
+    // A troca continua funcionando mesmo quando não é possível persistir.
+  }
 }
 
 // Traduz uma chave do dicionário atual, substituindo {placeholders}.

@@ -1,6 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Home } from "./components/Home.jsx";
-import { detectLanguage, STRINGS, translate } from "./i18n.js";
+import {
+  detectLanguage,
+  saveLanguagePreference,
+  STRINGS,
+  translate,
+} from "./i18n.js";
 
 const Game = lazy(() => import("./Game.jsx"));
 
@@ -8,15 +13,15 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [lang, setLang] = useState(detectLanguage);
   const home = useCallback(() => setProfile(null), []);
+  const toggleLanguage = useCallback(() => {
+    const next = lang === "en" ? "pt" : "en";
+    saveLanguagePreference(next);
+    setLang(next);
+  }, [lang]);
   const t = (key) => translate(STRINGS[lang], key);
 
   useEffect(() => {
     document.documentElement.lang = lang === "pt" ? "pt-BR" : "en";
-    try {
-      localStorage.setItem("lang", lang);
-    } catch {
-      /* Preferência opcional. */
-    }
   }, [lang]);
 
   if (profile) {
@@ -32,16 +37,10 @@ export default function App() {
           profile={profile}
           onHome={home}
           lang={lang}
-          onLanguage={() => setLang((l) => (l === "pt" ? "en" : "pt"))}
+          onLanguage={toggleLanguage}
         />
       </Suspense>
     );
   }
-  return (
-    <Home
-      lang={lang}
-      onLanguage={() => setLang(lang === "pt" ? "en" : "pt")}
-      onPlay={setProfile}
-    />
-  );
+  return <Home lang={lang} onLanguage={toggleLanguage} onPlay={setProfile} />;
 }

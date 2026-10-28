@@ -19,6 +19,7 @@ import {
 } from "@mui/material";
 
 import { sfx } from "./sfx.js";
+import logoImage from "../assets/logo.jpeg";
 import { createGameSession } from "./network/game_session.js";
 import { waitForBackend } from "./network/backend_ready.js";
 import { useGameControls } from "./hooks/use_game_controls.js";
@@ -1250,7 +1251,7 @@ export default function Game({ profile, onHome, lang, onLanguage }) {
         }}
       >
         <img
-          src="/logo.jpeg"
+          src={logoImage}
           alt="SURVIVE THE DESTRUCTION"
           style={{
             display: gameStarted ? "none" : "block",
@@ -1260,7 +1261,7 @@ export default function Game({ profile, onHome, lang, onLanguage }) {
             objectFit: "contain",
             borderRadius: 12,
             boxShadow: "0 10px 24px rgba(90,70,40,0.25)",
-            mb: 1,
+            marginBottom: 8,
           }}
         />
         <Typography
