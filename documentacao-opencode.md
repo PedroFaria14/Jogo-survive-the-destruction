@@ -296,17 +296,16 @@ CREATE TABLE IF NOT EXISTS scores (
 | `DATABASE_URL` | **Sim** | Connection string do PostgreSQL (Neon). Sem ela o backend **não sobe**. Definida como **secret no painel do Render** (`render.yaml` usa `sync: false` — nunca versionar a senha). |
 | `PORT` | Não | Porta do servidor HTTP (Render injeta automaticamente). |
 | `HTTP_ADDR` | Não | Endereço HTTP local (default `:8080`); usado quando `PORT` não existe. |
-| `ALLOWED_ORIGINS` | Sim (produção) | Lista de origens permitidas para CORS/WebSocket (ex.: `https://jogo-survive-the-destruction.vercel.app`). |
+| `ALLOWED_ORIGINS` | Sim (produção) | Lista de origens do frontend permitidas para CORS/WebSocket (produção: `https://survive.phfaria.com`). |
 
 ### Frontend (Vercel)
 
 | Variável | Obrigatória | Descrição |
 |---|---|---|
-| `VITE_API_URL` | **Sim** | URL base da API (ex.: `https://jogo-survive-the-destruction.onrender.com`). |
-| `VITE_WS_URL` | **Sim** | URL do WebSocket (ex.: `wss://jogo-survive-the-destruction.onrender.com/ws`). |
+| `VITE_API_URL` | Não | URL base da API (fallback: `https://api.survive.phfaria.com`). |
+| `VITE_WS_URL` | Não | URL do WebSocket (fallback: derivado da API, em produção `wss://api.survive.phfaria.com/ws`). |
 
-- Fallbacks em `frontend/src/Game.jsx` apontam para as URLs de produção do
-  Render. Para dev local, definir as variáveis Vite apontando para
+- Fallbacks centralizados em `frontend/src/network/backend_config.js` apontam para `api.survive.phfaria.com`; `Game.jsx` consome a configuração resolvida. Para dev local, definir as variáveis Vite apontando para
   `http://localhost:8080`.
 
 ## Integrações

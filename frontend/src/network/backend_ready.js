@@ -1,3 +1,5 @@
+import { normalizeBaseUrl } from "./backend_config.js";
+
 const wait = (ms, signal) =>
   new Promise((resolve, reject) => {
     if (signal.aborted) {
@@ -21,6 +23,7 @@ export async function waitForBackend(
   signal,
   { fetcher = fetch, timeout = 300000, retryMs = 4000 } = {},
 ) {
+  const apiBaseUrl = normalizeBaseUrl(baseUrl);
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     signal.throwIfAborted();
@@ -29,11 +32,11 @@ export async function waitForBackend(
         signal,
         AbortSignal.timeout(6000),
       ]);
-      const health = await fetcher(`${baseUrl}/api/health`, {
+      const health = await fetcher(`${apiBaseUrl}/api/health`, {
         signal: requestSignal,
       });
       if (!health.ok) throw new Error("Backend unavailable");
-      const config = await fetcher(`${baseUrl}/api/config`, {
+      const config = await fetcher(`${apiBaseUrl}/api/config`, {
         signal: requestSignal,
       });
       if (!config.ok) throw new Error("Configuration unavailable");

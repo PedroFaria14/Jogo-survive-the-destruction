@@ -5,6 +5,7 @@ services:
     rootDir: backend
     buildCommand: go build -o server .
     startCommand: ./server
+    healthCheckPath: /api/health
     envVars:
       # DATABASE_URL é um secret gerenciado: defina-o no painel do Render
       # (Service > Environment) e não versionado no repositório. O valor abaixo
@@ -12,6 +13,6 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: ALLOWED_ORIGINS
-        value: https://jogo-survive-the-destruction.vercel.app
+        value: https://survive.phfaria.com,https://jogo-survive-the-destruction.vercel.app
       - key: HTTP_ADDR
         value: ":8080"

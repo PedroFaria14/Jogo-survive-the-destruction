@@ -22,6 +22,24 @@ test("readiness returns valid config only after successful health and config", a
   ]);
 });
 
+test("readiness does not request double-slash paths when the API URL has a trailing slash", async () => {
+  const requests = [];
+  await waitForBackend(
+    " https://api.survive.phfaria.com/// ",
+    new AbortController().signal,
+    {
+      fetcher: async (url) => {
+        requests.push(url);
+        return { ok: true, json: async () => config };
+      },
+    },
+  );
+  assert.deepEqual(requests, [
+    "https://api.survive.phfaria.com/api/health",
+    "https://api.survive.phfaria.com/api/config",
+  ]);
+});
+
 test("readiness retries failed health and invalid configuration", async () => {
   let healthCalls = 0,
     configCalls = 0;

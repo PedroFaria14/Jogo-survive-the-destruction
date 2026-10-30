@@ -15,7 +15,42 @@ No painel da Vercel, confira:
 
 Remova overrides antigos de instalação/build no painel que contrariem essa configuração. O `vercel.json` da raiz do repositório não é a configuração do frontend quando o Root Directory é `frontend`.
 
-Configure `VITE_API_URL` e `VITE_WS_URL` para o backend correto. Essas variáveis são incorporadas no build; alterá-las exige novo deploy. O CSP em `frontend/vercel.json` permite o backend Render atual; se trocar de domínio, revise também essa lista.
+Configure `VITE_API_URL` e `VITE_WS_URL` para o domínio público atual conforme a seção abaixo. Essas variáveis são incorporadas no build; alterá-las exige novo deploy. O CSP em `frontend/vercel.json` permite HTTP e WebSocket para `api.survive.phfaria.com`; se trocar de domínio, revise também essa lista.
+
+## Backend atual: Vercel e Render
+
+### Vercel → projeto do frontend → Settings → Environment Variables
+
+Defina em **Production**:
+
+```env
+VITE_API_URL=https://api.survive.phfaria.com
+VITE_WS_URL=wss://api.survive.phfaria.com/ws
+```
+
+`VITE_API_URL` é a URL **base**, sem `/api` ou `/api/health`; o cliente acrescenta o caminho. Barras finais e espaços externos são normalizados pelo frontend. Se `VITE_WS_URL` estiver ausente, o socket é derivado da URL da API (`https → wss`, `http → ws`) com o caminho `/ws`. Um override explícito de WebSocket tem prioridade — por isso um valor antigo na Vercel ainda precisa ser corrigido.
+
+Confira também **Preview** e eventuais overrides por branch se você usa deploys de teste. A CSP permite esse domínio de API; uma API de preview diferente também precisaria ser liberada explicitamente. Editar `frontend/.env.example` não altera as variáveis do painel nem bundles já publicados.
+
+### Render → serviço backend
+
+- **Settings → Custom Domains:** mantenha `api.survive.phfaria.com` vinculado ao serviço correto, com DNS e certificado verificados. O domínio novo já respondeu aos endpoints de health/config durante o diagnóstico; não há necessidade de mudar DNS se ele continua verificado.
+- **Environment → ALLOWED_ORIGINS:** deve conter `https://survive.phfaria.com`, sem barra final ou caminho. Para manter o alias antigo do frontend, use a lista: `https://survive.phfaria.com,https://jogo-survive-the-destruction.vercel.app`.
+- **Settings → Health Check Path:** `/api/health`.
+- Preserve `DATABASE_URL` e a configuração de porta existentes. `PORT`, quando fornecida pelo Render, tem prioridade sobre `HTTP_ADDR`.
+
+`ALLOWED_ORIGINS` lista as origens do **frontend**, não o domínio da API. O backend usa essa lista tanto no CORS HTTP quanto na validação do Origin no handshake WebSocket. O blueprint `render.yaml` foi alinhado ao domínio do frontend e ao health check; para um serviço existente configurado manualmente, confira os valores no painel — editar o YAML local não garante que esse serviço tenha sido atualizado.
+
+### Publicar e conferir
+
+1. Se precisar mudar o ambiente no Render, aplique com **Save, rebuild and deploy** e aguarde prontidão. Caso o ambiente já esteja correto, não é necessário alterar o código Go ou redeployar o backend por esta mudança do frontend.
+2. Faça commit/push das mudanças do frontend e da CSP. Depois de corrigir as variáveis na Vercel, publique um **novo build** com esse commit. Apenas alterar o painel não substitui variáveis Vite em um bundle já gerado.
+3. No domínio oficial, abra uma partida e confira o Network: `/api/health`, `/api/config` e `/api/scores` devem usar `https://api.survive.phfaria.com`; o socket deve conectar a `wss://api.survive.phfaria.com/ws` e negociar `101 Switching Protocols`.
+4. Confira a ausência de violações de `connect-src` e de chamadas ao host antigo `jogo-survive-the-destruction.onrender.com`.
+
+Durante a validação, o host antigo retornou 404, enquanto o novo health/config retornou 200 e o CORS aceitou `https://survive.phfaria.com`. Um handshake real em `wss://api.survive.phfaria.com/ws`, com essa origem, recebeu `init` com identificação de jogador/sala; a conexão de verificação foi encerrada em seguida. Os 20 testes unitários do frontend, lint, build e os dois E2E selecionados (home e prévia social) passaram. O JavaScript gerado não contém mais o endereço antigo como fallback.
+
+Se o site continuar chamando o host antigo após publicar, confira o commit ativo e os overrides de ambiente da Vercel antes de mexer nas rotas do backend. Os valores de ambiente e a CSP do site já publicado não foram alterados automaticamente pelo agente; exigem a configuração/publicação descrita acima.
 
 ## Gerenciador e lockfile
 

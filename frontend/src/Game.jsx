@@ -22,6 +22,7 @@ import { sfx } from "./sfx.js";
 import logoImage from "../assets/logo.jpeg";
 import { createGameSession } from "./network/game_session.js";
 import { waitForBackend } from "./network/backend_ready.js";
+import { resolveBackendUrls } from "./network/backend_config.js";
 import { useGameControls } from "./hooks/use_game_controls.js";
 import {
   PALETTE,
@@ -54,13 +55,9 @@ for (const [key, url] of Object.entries(
 // =======================
 // Configurações
 // =======================
-// URLs configuráveis via variáveis de ambiente Vite (VITE_*) com fallback local.
-const GAME_WS_URL =
-  import.meta.env.VITE_WS_URL ||
-  "wss://jogo-survive-the-destruction.onrender.com/ws";
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL ||
-  "https://jogo-survive-the-destruction.onrender.com";
+// URLs configuráveis via Vite, com fallback para o domínio público atual.
+const { apiBaseUrl: API_BASE_URL, webSocketUrl: GAME_WS_URL } =
+  resolveBackendUrls(import.meta.env);
 const SCORES_API_URL = `${API_BASE_URL}/api/scores`;
 
 // Fallback das constantes do jogo (o servidor fornece via /api/config)

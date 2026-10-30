@@ -209,14 +209,14 @@ Em seguida, o servidor envia snapshots completos da sala a cada tick de 16 ms (~
 
 | Variável | Obrigatória | Descrição |
 | ---- | ---- | ---- |
-| `VITE_WS_URL` | Não | URL do WebSocket (fallback: produção Render) |
-| `VITE_API_URL` | Não | URL base da API (fallback: produção Render) |
+| `VITE_WS_URL` | Não | WebSocket explícito; por padrão deriva da API (`wss://api.survive.phfaria.com/ws` em produção) |
+| `VITE_API_URL` | Não | URL base da API (fallback: `https://api.survive.phfaria.com`) |
 
 > Nunca commite `.env` reais. O `.env.example` é o modelo seguro.
 
 ## ☁️ Deploy
 
-- **Backend → Render**: serviço web Go, `rootDir: backend`, build `go build -o server .`, start `./server`. Variáveis: `DATABASE_URL`, `ALLOWED_ORIGINS` (origem do Vercel), `HTTP_ADDR`.
+- **Backend → Render**: serviço web Go, `rootDir: backend`, build `go build -o server .`, start `./server`, health check `/api/health`. Domínio público: `api.survive.phfaria.com`. Variáveis: `DATABASE_URL`, `ALLOWED_ORIGINS` (incluindo `https://survive.phfaria.com`), `HTTP_ADDR`.
 - **Frontend → Vercel**: Root Directory `frontend`, pnpm `10.34.9` e comandos de instalação/build definidos em `frontend/vercel.json`. As URLs do backend são injetadas via `VITE_WS_URL` e `VITE_API_URL`. Veja o [guia de deploy](docs/deploy-vercel.md).
 
 ## 🧠 Mecânicas e Decisões Técnicas

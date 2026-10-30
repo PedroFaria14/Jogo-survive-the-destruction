@@ -56,4 +56,6 @@ A home abre imediatamente. Após **Jogar agora → personalização → Entrar n
 
 O idioma inicial é **inglês**, independentemente do idioma do navegador. A seleção manual de português/inglês é persistida em `preferredLanguage`; o estado antigo salvo automaticamente em `lang` não força mais português.
 
+Em produção, a API usa `https://api.survive.phfaria.com` e o WebSocket usa `wss://api.survive.phfaria.com/ws`. URLs são resolvidas em `src/network/backend_config.js`; espaços/barras finais são removidos, e um WebSocket não configurado deriva da API. Confira também as variáveis na Vercel e a origem permitida no Render no [guia de deploy](../docs/deploy-vercel.md#backend-atual-vercel-e-render).
+
 A miniatura de compartilhamento é `public/social-preview.jpg` (1200 × 630), referenciada por metadados estáticos Open Graph/Twitter no HTML. Veja [como validar e atualizar a prévia no LinkedIn](../docs/deploy-vercel.md#miniatura-no-linkedin-e-outras-redes).
